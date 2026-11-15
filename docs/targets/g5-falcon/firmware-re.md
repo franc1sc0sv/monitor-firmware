@@ -62,3 +62,16 @@ exact table extent.
 
 These memory primitives are also the building blocks for the eventual DDC→flash writer (the "flash over HDMI" goal),
 which targets the inactive A/B bank and validates before switching.
+
+## Code-cave strategy (confirmed: the code is packed)
+
+The SPARC code region (file `0x12E000..0x21DCE0`) has **no zero/nop padding runs ≥ 64 bytes** — unlike the LC34's
+MStar cave, there is no free padding to inject into. The hook code must therefore **reclaim dead code**: uncalled
+stubs the sibling RE flagged (PDIC/TCON/FPGA update stubs with no reachable callers). Confirmed present on our image:
+
+| Candidate | VA | File | Note |
+|---|---|---|---|
+| PDIC "not implemented" stub | `0x1E45D4` | `0x2125D4` | sibling RE: no callers; logs and returns 0 (string at file `0x319113`) |
+
+Next: confirm no live caller reaches a chosen stub, measure its reclaimable length, and verify r3..r8/r9 usage rules
+(the project's hook register discipline) translate to the SPARC ABI before writing into it.
