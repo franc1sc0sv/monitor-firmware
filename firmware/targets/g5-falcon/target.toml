@@ -2,9 +2,10 @@
 # big-endian main app. Unlike the LC34G55T this is NOT an MStar target; the MStar ISP/patch tooling does not apply.
 # Write path is the USB `.img` updater (this unit has a USB-A port). See docs/targets/g5-falcon/overview.md.
 [target]
-model = "Odyssey G5 (FALCON)"          # OSD model name; exact code LS32CG5xx to be read from the rear label
-scaler = "Novatek NT68500 family"      # inferred from public G5 RE; not yet confirmed on this unit
-cpu = "8051 + SPARC V8 (big-endian)"   # inferred
+model = "S32CG552EN"                    # confirmed from rear label
+model_code = "LS32CG552ENXZA"           # confirmed (region XZA); OSD model name "FALCON"
+scaler = "Novatek NT68xxx"              # confirmed: stock .img magic is "\x7fNVTSC_IMG"
+cpu = "8051 + SPARC V8 (big-endian)"    # inferred from NT68552 sibling RE
 flash = "SPI NOR (Macronix/Winbond/SST/ISSI per boot JEDEC table); exact part unknown"  # inferred
 ddc_ci_address = 0x37                   # confirmed on hardware
 isp_i2c_address = false                 # no DDC ISP slave: scan ACKs only 0x30 0x37 0x3A 0x50 0x54 (confirmed)
@@ -15,6 +16,13 @@ write_path = "usb-img-updater"          # Samsung M-C5500GGZA-*.img over a USB-A
 1 = { name = "HDMI", vcp60 = 0x06 }          # confirmed
 
 [firmware]
-# Family M-C5500GGZA-NNNN.N; whole-file 16-bit byte-sum in the filename brackets, strict 18-char embedded form.
-installed = []                          # fill once the unit's version is read and a stock .img is verified
+# Family M-C5500GGZA-NNNN.N; strict embedded form; whole-file 16-bit byte-sum printed as [XXXX] in the filename.
+official_latest = "1008.3"              # Samsung support (LS32CG552ENXZA, Latin): M-C5500GGZA.zip, 2025-09-12
+installed = []                          # unit's running version still to be read from OSD (Support > Information)
 reference_re = "github:c8dhjp4tyv-bit/odyssey-g5-firmware-research"  # LS32CG552, M-C5500GGZA-1010.0 (external RE)
+
+[format]                               # confirmed against the official 1008.3 .img
+magic = "\\x7fNVTSC_IMG\\n"            # Novatek scaler image header
+image_size = 3449760                    # bytes; same as the RE base image
+# integrity: sum16 = (sum of all bytes) & 0xFFFF, printed as the 4 hex digits in [..]; verified 1008.3 -> 0xC145
+# stock image + its sha256 are kept locally only, under data/vendor/g5/ (gitignored); never commit vendor bytes.
