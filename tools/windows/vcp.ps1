@@ -1,17 +1,7 @@
-param([string]$Op='get', [string]$Code='60', [string]$Value='0', [string]$Target='all')
-Add-Type -Path (Join-Path $PSScriptRoot 'AmdI2c.cs')
-Add-Type -Path (Join-Path $PSScriptRoot 'Dxva.cs')
-$c = [Convert]::ToByte($Code,16); $v = [Convert]::ToUInt32($Value,16)
-function AmdGet($d, $code) {
-  $p=[byte[]](0x51,0x82,0x01,$code); $ck=0x6E; foreach($b in $p){$ck=$ck -bxor $b}
-  $w=[Amd]::Block($d, [byte[]](@(0x6E)+$p+[byte]$ck), $null); Start-Sleep -Milliseconds 60
-  $r=New-Object byte[] 11; $rr=[Amd]::Block($d, [byte[]](0x6F), $r); "w=$w r=$rr " + [Amd]::Hex($r) }
-function AmdSet($d, $code, $val) {
-  $p=[byte[]](0x51,0x84,0x03,$code,[byte](($val -shr 8) -band 0xFF),[byte]($val -band 0xFF)); $ck=0x6E; foreach($b in $p){$ck=$ck -bxor $b}
-  "set w=" + [Amd]::Block($d, [byte[]](@(0x6E)+$p+[byte]$ck), $null) }
-if ($Target -in 'all','dxva') { foreach ($m in [Dxva]::All()) {
-  if ($Op -eq 'set' -and $m.desc -match 'G55T|Odyssey|Generic') { }
-  "dxva [{0}] get 0x{1:X2}: {2}" -f $m.desc, $c, [Dxva]::Get($m.h, $c) } }
-if ($Target -in 'all','amd') { foreach ($d in [Amd]::Init()) {
-  "amd [$d] get: " + (AmdGet $d $c)
-  if ($Op -eq 'set' -and "$d" -match 'LC34G55T') { AmdSet $d $c $v; Start-Sleep -Seconds 4; "amd after set get: " + (AmdGet $d $c) } } }
+# Get or set any VCP code over ADL (HDMI). Example: .\vcp.ps1 -Code 10 ; .\vcp.ps1 -Code 10 -Value 80
+param([Parameter(Mandatory)][string]$Code, [string]$Value = '')
+Import-Module (Join-Path $PSScriptRoot 'MonitorTools/MonitorTools.psm1') -Force
+$d = Get-MonitorDisplay; $c = [Convert]::ToInt32($Code, 16)
+if ($Value) { "set 0x{0:X2}={1}: {2}" -f $c, $Value, (Set-Vcp -Display $d -Code $c -Value ([int]$Value) -Verify) }
+$r = Get-Vcp -Display $d -Code $c
+if ($r) { "0x{0:X2}: rc={1} current={2} max={3}" -f $c, $r.rc, $r.current, $r.max } else { "0x{0:X2}: no valid reply" -f $c; exit 1 }

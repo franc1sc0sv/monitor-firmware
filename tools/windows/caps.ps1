@@ -1,4 +1,5 @@
-Add-Type -Path (Join-Path $PSScriptRoot 'Dxva.cs')
+# Prints the MCCS capabilities string of every monitor Windows sees (dxva2, read-only).
+Import-Module (Join-Path $PSScriptRoot "MonitorTools/MonitorTools.psm1") -Force
 Add-Type -TypeDefinition @"
 using System; using System.Runtime.InteropServices; using System.Text;
 public static class Caps {

@@ -1,0 +1,37 @@
+[project]
+name = "monitor-firmware"
+version = "0.3.0"
+description = "Workspace root: custom firmware and tooling for Samsung (MStar MST9U) monitors."
+requires-python = ">=3.11"
+dependencies = ["monitor-events", "mfw"]
+
+[tool.uv.workspace]
+members = ["client", "tools/mfw"]
+
+[tool.uv.sources]
+monitor-events = { workspace = true }
+mfw = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-timeout>=2", "ruff>=0.6", "pyright>=1.1.380", "zopfli>=0.2"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["tools/research"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501", "E701", "E702", "E731"]  # line length is the formatter's job
+
+[tool.pytest.ini_options]
+testpaths = ["client/tests", "tools/mfw/tests", "tests"]
+timeout = 30
+
+[tool.pyright]
+include = ["client/src", "tools/mfw/src"]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+
+[tool.ruff.lint.isort]
+known-first-party = ["mfw", "monitor_events"]

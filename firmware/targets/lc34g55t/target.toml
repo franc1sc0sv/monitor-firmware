@@ -1,0 +1,16 @@
+# Samsung LC34G55T (34" 3440x1440 ultrawide). Scaler MStar MST9U, CPU AEON R2, flash Winbond W25Q64 (8 MB).
+[target]
+model = "LC34G55T"
+scaler = "MStar MST9U (MST9U4)"
+cpu = "AEON R2 (little-endian data)"
+flash = "Winbond W25Q64 (JEDEC EF 40 17)"
+isp_i2c_address = 0x49      # 8-bit 0x92/0x93
+ddc_ci_address = 0x37
+
+[ports]                      # main-window port index -> name and Samsung VCP 0x60 value
+0 = { name = "DisplayPort", vcp60 = 0x09 }
+1 = { name = "HDMI", vcp60 = 0x06 }
+
+[firmware]
+installed = ["1006.0"]       # versions with a verified version file
+known_unported = ["1012.1"]  # vendor download M-T5534GCPA.zip; addresses differ, not ported

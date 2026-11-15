@@ -1,0 +1,94 @@
+# Installed firmware M-T5534GCPA-1006.0 of the Samsung LC34G55T.
+# Facts measured on one unit (see docs/targets/lc34g55t/journal.md). Guards hold SHA-256 of stock bytes, never the bytes.
+
+[identity]
+model = "LC34G55T"
+version = "1006.0"
+version_string = "M-T5534GCPA-1006.0"
+ap_sha256 = "0ca44b6850a85fd286bea980fed383d5008376ffe99844e054c48135dff0393e"       # decompressed AP body (loads at load_base)
+prefix_sha256 = "9b33f3c4ba40f3d4570d6c2dcd1e947f74ac26340e17d254aba9c07b84b71183"   # 0x3800-byte uncompressed prefix
+flash_jedec = "EF4017"                                   # Winbond W25Q64, 8 MB
+
+[container]
+descriptor = 0x11000      # u32 LE x10: ap_flash_start, ram_start, ram_end, ap_flash_end, 0, hdr_crc32, 0, 0, filesize-4, 0x11000
+prefix_len = 0x3800
+len_field = 0x114a        # inside the prefix: prefix + stream + 6
+tail_limit = 0x160930     # first non-zero byte after the stock AP region; resources are never moved
+ram_base = 0x200000       # prefix loads here
+load_base = 0x203800      # decompressed AP body loads here
+flash_write_start = 0x11000
+flash_write_end = 0x2c0000   # includes the trailer CRC sector 0x2bf000 (filesize-4 = 0x2bfde8); unchanged sectors are skipped
+
+[cave]
+start = 0x399820          # end-of-.text padding (0x399817..0x39a000 is zero in the stock image)
+end = 0x39a000
+
+[ram]
+block = 0x4fe6b0          # 2 KB event/state block (v3)
+block_size = 0x800
+
+[symbols]
+ddc_service = 0x212fc6
+set_vcp_handler = 0x270b45
+menu_apply = 0x284884
+timer_isr_tail_callee = 0x28ba15
+get_vcp_table = 0x377410
+get_reply_tail = 0x26fcd3
+cfg_ptr = 0x3c41b0
+settings_base = 0x204000
+
+[[guards]]
+name = "get60_case"
+at = 0x26fc9b
+len = 54
+expect_sha256 = "9f726e4f67a761feaf82bfb76007ae400e6796aaed3f295c166aac91b8e3bc9b"
+note = "Get VCP 0x60 case block (replaced: report the input on screen)"
+
+[[guards]]
+name = "bss_bound"
+at = 0x2001a7
+len = 4
+expect_sha256 = "47ca3973633d2d8cef773bd8f40c088451f29fda15bc0c7de9667c45bdcbfff3"
+note = "ori r4,r4,0xe6b0 in the AP entry (BSS clear end; prefix, uncompressed)"
+
+[[guards]]
+name = "sbrk_base"
+at = 0x4c1390
+len = 4
+expect_sha256 = "0c8fbed86f942c9436b475a4c3b63fc034fd37496917ae85b92163b46654030e"
+note = "heap start word (LE 0x004fe6b0)"
+
+[[guards]]
+name = "timer_isr_tail"
+at = 0x24d885
+len = 4
+expect_sha256 = "327ead303162d7aacdc54bab8fa9beb3d02c196e17485a1c5d2074d5720d36a0"
+note = "j 0x28ba15 at the end of the 1 ms timer ISR"
+
+[[guards]]
+name = "main_loop_ddc"
+at = 0x26b6d3
+len = 4
+expect_sha256 = "5f6533f00b69f0234ce3f266c8bb4dd08bcb4d90aabe26cf8db26828a7825a07"
+note = "jal 0x212fc6 (DDC service) in the main loop"
+
+[[guards]]
+name = "set_vcp_dispatch"
+at = 0x27123d
+len = 4
+expect_sha256 = "632058cffd3a20f113218945c42a1f7042b495972005262b53d7b2082973e49f"
+note = "jal 0x270b45 (stock Set VCP handler)"
+
+[[guards]]
+name = "get_table_ea_f2"
+at = 0x3777b8
+len = 36
+expect_sha256 = "3ca5810af4b7a4fe8aacaabf706e8f9ae1954ae31ef70ccf0cc3301f523d573e"
+note = "Get VCP jump-table entries 0xEA..0xF2 (all 'unsupported')"
+
+[[guards]]
+name = "code_cave"
+at = 0x399820
+len = 0x7e0
+expect_zero = true
+note = "end-of-.text padding used for new code"
