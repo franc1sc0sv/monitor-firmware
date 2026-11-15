@@ -1,0 +1,918 @@
+ram:0026fc9b 98ee ; b.movi r7,0xe
+ram:0026fc9d c0a00981 ; b.movhi r5,0x4c
+ram:0026fca1 f8e51b1e ; b.sb 0x1b1e(r5),r7
+ram:0026fca5 c0c00781 ; b.movhi r6,0x3c
+ram:0026fca9 ecc641b2 ; b.lwz r6,0x41b0(r6)
+ram:0026fcad f0e600e4 ; b.lbz r7,0xe4(r6)
+ram:0026fcb1 8cc7 ; b.add r6,r6,r7
+ram:0026fcb3 f0a600e5 ; b.lbz r5,0xe5(r6)
+ram:0026fcb7 98e9 ; b.movi r7,0x9
+ram:0026fcb9 d0a00062 ; b.beqi r5,0x0,0x26fcc5
+ram:0026fcbd 98e6 ; b.movi r7,0x6
+ram:0026fcbf d0a10032 ; b.beqi r5,0x1,0x26fcc5
+ram:0026fcc3 98ea ; b.movi r7,0xa
+ram:0026fcc5 c0c00981 ; b.movhi r6,0x4c
+ram:0026fcc9 f8e61b15 ; b.sb 0x1b15(r6),r7
+ram:0026fccd e400000d ; b.j 0x26fcd3
+ram:002001a7 c884eeb0 ; b.ori r4,r4,0xeeb0
+ram:004c1390 b0ee4f00 ; .le32 0x004feeb0
+ram:0024d885 e429831d ; b.j 0x399a13
+ram:0026b6d3 e425c29a ; b.jal 0x399820
+ram:0027123d e42510d8 ; b.jal 0x399aa9
+ram:003777b8 039c3900 ; .le32 @get_ea
+ram:003777bc 249c3900 ; .le32 @get_eb
+ram:003777c0 3f9c3900 ; .le32 @get_ec
+ram:003777c4 669c3900 ; .le32 @get_ed
+ram:003777c8 8c9c3900 ; .le32 @get_ee
+ram:003777cc bc9c3900 ; .le32 @get_ef
+ram:003777d0 209d3900 ; .le32 @get_f0
+ram:003777d4 3c9d3900 ; .le32 @get_f1
+ram:003777d8 589d3900 ; .le32 @get_f2
+ram:00399820 1c21f8 ; b.addi r1,r1,-0x8
+ram:00399823 0d2104 ; b.sw 0x4(r1),r9
+ram:00399826 e7cf2f40 ; b.jal 0x212fc6
+ram:0039982a c10009e1 ; b.movhi r8,0x4f
+ram:0039982e c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399832 0ce802 ; b.lwz r7,0x0(r8)
+ram:00399835 c0c8aac1 ; b.movhi r6,0x4556
+ram:00399839 c8c65431 ; b.ori r6,r6,0x5431
+ram:0039983d d4e60132 ; b.beq r7,r6,0x399863
+ram:00399841 0cc800 ; b.sw 0x0(r8),r6
+ram:00399844 c0ddddc1 ; b.movhi r6,0xeeee
+ram:00399848 c8c6eeee ; b.ori r6,r6,0xeeee
+ram:0039984c 0cc80c ; b.sw 0xc(r8),r6
+ram:0039984f ecc80010 ; b.sw 0x10(r8),r6
+ram:00399853 98ef ; b.movi r7,0xf
+ram:00399855 f8e80014 ; b.sb 0x14(r8),r7
+ram:00399859 9860 ; b.movi r3,0x0
+ram:0039985b 9880 ; b.movi r4,0x0
+ram:0039985d 98a0 ; b.movi r5,0x0
+ram:0039985f e400042c ; b.jal 0x399a75
+ram:00399863 e40003ae ; b.jal 0x399a3a
+ram:00399867 f088000c ; b.lbz r4,0xc(r8)
+ram:0039986b d4850072 ; b.beq r4,r5,0x399879
+ram:0039986f f8a8000c ; b.sb 0xc(r8),r5
+ram:00399873 9861 ; b.movi r3,0x1
+ram:00399875 e4000400 ; b.jal 0x399a75
+ram:00399879 c0c00781 ; b.movhi r6,0x3c
+ram:0039987d ecc641b2 ; b.lwz r6,0x41b0(r6)
+ram:00399881 f0a600de ; b.lbz r5,0xde(r6)
+ram:00399885 10880d ; b.lbz r4,0xd(r8)
+ram:00399888 d4850072 ; b.beq r4,r5,0x399896
+ram:0039988c f8a8000d ; b.sb 0xd(r8),r5
+ram:00399890 9862 ; b.movi r3,0x2
+ram:00399892 e40003c6 ; b.jal 0x399a75
+ram:00399896 c0c00781 ; b.movhi r6,0x3c
+ram:0039989a ecc641b2 ; b.lwz r6,0x41b0(r6)
+ram:0039989e f0a600d7 ; b.lbz r5,0xd7(r6)
+ram:003998a2 10880e ; b.lbz r4,0xe(r8)
+ram:003998a5 d4850072 ; b.beq r4,r5,0x3998b3
+ram:003998a9 f8a8000e ; b.sb 0xe(r8),r5
+ram:003998ad 9863 ; b.movi r3,0x3
+ram:003998af e400038c ; b.jal 0x399a75
+ram:003998b3 c0c009a1 ; b.movhi r6,0x4d
+ram:003998b7 f0a6a78c ; b.lbz r5,-0x5874(r6)
+ram:003998bb f088000f ; b.lbz r4,0xf(r8)
+ram:003998bf d4850072 ; b.beq r4,r5,0x3998cd
+ram:003998c3 f8a8000f ; b.sb 0xf(r8),r5
+ram:003998c7 9864 ; b.movi r3,0x4
+ram:003998c9 e4000358 ; b.jal 0x399a75
+ram:003998cd e4000302 ; b.jal 0x399a4e
+ram:003998d1 10a61c ; b.lbz r5,0x1c(r6)
+ram:003998d4 f0880010 ; b.lbz r4,0x10(r8)
+ram:003998d8 d4850072 ; b.beq r4,r5,0x3998e6
+ram:003998dc f8a80010 ; b.sb 0x10(r8),r5
+ram:003998e0 9865 ; b.movi r3,0x5
+ram:003998e2 e4000326 ; b.jal 0x399a75
+ram:003998e6 e40002d0 ; b.jal 0x399a4e
+ram:003998ea 08e623 ; b.lhz r7,0x22(r6)
+ram:003998ed 98a0 ; b.movi r5,0x0
+ram:003998ef d0e00032 ; b.beqi r7,0x0,0x3998f5
+ram:003998f3 98a1 ; b.movi r5,0x1
+ram:003998f5 f0880011 ; b.lbz r4,0x11(r8)
+ram:003998f9 d4850072 ; b.beq r4,r5,0x399907
+ram:003998fd f8a80011 ; b.sb 0x11(r8),r5
+ram:00399901 9866 ; b.movi r3,0x6
+ram:00399903 e40002e4 ; b.jal 0x399a75
+ram:00399907 c0c009a1 ; b.movhi r6,0x4d
+ram:0039990b f0a6ebe4 ; b.lbz r5,-0x141c(r6)
+ram:0039990f f0880012 ; b.lbz r4,0x12(r8)
+ram:00399913 d4850072 ; b.beq r4,r5,0x399921
+ram:00399917 f8a80012 ; b.sb 0x12(r8),r5
+ram:0039991b 9867 ; b.movi r3,0x7
+ram:0039991d e40002b0 ; b.jal 0x399a75
+ram:00399921 c0c009e1 ; b.movhi r6,0x4f
+ram:00399925 f0a6c92d ; b.lbz r5,-0x36d3(r6)
+ram:00399929 f0880013 ; b.lbz r4,0x13(r8)
+ram:0039992d d4850072 ; b.beq r4,r5,0x39993b
+ram:00399931 f8a80013 ; b.sb 0x13(r8),r5
+ram:00399935 9868 ; b.movi r3,0x8
+ram:00399937 e400027c ; b.jal 0x399a75
+ram:0039993b 98e8 ; b.movi r7,0x8
+ram:0039993d f8e80232 ; b.sb 0x232(r8),r7
+ram:00399941 e8880231 ; b.lhz r4,0x230(r8)
+ram:00399945 c0c00401 ; b.movhi r6,0x20
+ram:00399949 c8c64000 ; b.ori r6,r6,0x4000
+ram:0039994d 8cc4 ; b.add r6,r6,r4
+ram:0039994f 10a600 ; b.lbz r5,0x0(r6)
+ram:00399952 40e824 ; b.add r7,r8,r4
+ram:00399955 f0c70400 ; b.lbz r6,0x400(r7)
+ram:00399959 d4a6019a ; b.beq r5,r6,0x39998c
+ram:0039995d f8a70400 ; b.sb 0x400(r7),r5
+ram:00399961 f0c80238 ; b.lbz r6,0x238(r8)
+ram:00399965 d0c0013a ; b.beqi r6,0x0,0x39998c
+ram:00399969 4cc419 ; b.srli r6,r4,0x3
+ram:0039996c 8cc8 ; b.add r6,r6,r8
+ram:0039996e f0c60600 ; b.lbz r6,0x600(r6)
+ram:00399972 54e407 ; b.andi r7,r4,0x7
+ram:00399975 4cc63d ; b.srl r6,r6,r7
+ram:00399978 54c601 ; b.andi r6,r6,0x1
+ram:0039997b d0c0008e ; b.bnei r6,0x0,0x39998c
+ram:0039997f 4c6441 ; b.srli r3,r4,0x8
+ram:00399982 506320 ; b.ori r3,r3,0x20
+ram:00399985 5484ff ; b.andi r4,r4,0xff
+ram:00399988 e40001da ; b.jal 0x399a75
+ram:0039998c e8880231 ; b.lhz r4,0x230(r8)
+ram:00399990 9c81 ; b.addi r4,r4,0x1
+ram:00399992 c48401ff ; b.andi r4,r4,0x1ff
+ram:00399996 ec880231 ; b.sh 0x230(r8),r4
+ram:0039999a d0800056 ; b.bnei r4,0x0,0x3999a4
+ram:0039999e 98e1 ; b.movi r7,0x1
+ram:003999a0 f8e80238 ; b.sb 0x238(r8),r7
+ram:003999a4 f0e80232 ; b.lbz r7,0x232(r8)
+ram:003999a8 fce7ffff ; b.addi r7,r7,-0x1
+ram:003999ac f8e80232 ; b.sb 0x232(r8),r7
+ram:003999b0 d0e0fc8e ; b.bnei r7,0x0,0x399941
+ram:003999b4 108814 ; b.lbz r4,0x14(r8)
+ram:003999b7 d08f02aa ; b.beqi r4,0xf,0x399a0c
+ram:003999bb e40000fe ; b.jal 0x399a3a
+ram:003999bf 108814 ; b.lbz r4,0x14(r8)
+ram:003999c2 d4850156 ; b.bne r4,r5,0x3999ec
+ram:003999c6 e4000110 ; b.jal 0x399a4e
+ram:003999ca 10e61c ; b.lbz r7,0x1c(r6)
+ram:003999cd 5ce141 ; b.sfeqi r7,0xa
+ram:003999d0 d40000e7 ; b.bnf 0x3999ec
+ram:003999d4 e40000cc ; b.jal 0x399a3a
+ram:003999d8 108814 ; b.lbz r4,0x14(r8)
+ram:003999db 506011 ; b.ori r3,r0,0x11
+ram:003999de e400012e ; b.jal 0x399a75
+ram:003999e2 98ef ; b.movi r7,0xf
+ram:003999e4 f8e80014 ; b.sb 0x14(r8),r7
+ram:003999e8 e4000049 ; b.j 0x399a0c
+ram:003999ec ecc8001e ; b.lwz r6,0x1c(r8)
+ram:003999f0 ece8001a ; b.lwz r7,0x18(r8)
+ram:003999f4 40c63d ; b.sub r6,r6,r7
+ram:003999f7 c0c0640e ; b.sfgtui r6,0x320
+ram:003999fb d400008f ; b.bnf 0x399a0c
+ram:003999ff 506012 ; b.ori r3,r0,0x12
+ram:00399a02 e40000e6 ; b.jal 0x399a75
+ram:00399a06 98ef ; b.movi r7,0xf
+ram:00399a08 f8e80014 ; b.sb 0x14(r8),r7
+ram:00399a0c 0d2106 ; b.lwz r9,0x4(r1)
+ram:00399a0f 9c28 ; b.addi r1,r1,0x8
+ram:00399a11 8529 ; b.jr r9
+ram:00399a13 c0c009e1 ; b.movhi r6,0x4f
+ram:00399a17 c8c6e6b0 ; b.ori r6,r6,0xe6b0
+ram:00399a1b 10e608 ; b.lbz r7,0x8(r6)
+ram:00399a1e 9ce1 ; b.addi r7,r7,0x1
+ram:00399a20 18e608 ; b.sb 0x8(r6),r7
+ram:00399a23 c0e0012e ; b.sfgtui r7,0x9
+ram:00399a27 d400007f ; b.bnf 0x399a36
+ram:00399a2b 180608 ; b.sb 0x8(r6),r0
+ram:00399a2e 0ce61e ; b.lwz r7,0x1c(r6)
+ram:00399a31 9ce1 ; b.addi r7,r7,0x1
+ram:00399a33 0ce61c ; b.sw 0x1c(r6),r7
+ram:00399a36 e7de3fbf ; b.j 0x28ba15
+ram:00399a3a c0c00781 ; b.movhi r6,0x3c
+ram:00399a3e ecc641b2 ; b.lwz r6,0x41b0(r6)
+ram:00399a42 f0e600e4 ; b.lbz r7,0xe4(r6)
+ram:00399a46 8cc7 ; b.add r6,r6,r7
+ram:00399a48 f0a600e5 ; b.lbz r5,0xe5(r6)
+ram:00399a4c 8529 ; b.jr r9
+ram:00399a4e c0c00781 ; b.movhi r6,0x3c
+ram:00399a52 ecc641b2 ; b.lwz r6,0x41b0(r6)
+ram:00399a56 f0e600e4 ; b.lbz r7,0xe4(r6)
+ram:00399a5a 8cc7 ; b.add r6,r6,r7
+ram:00399a5c f0a600e5 ; b.lbz r5,0xe5(r6)
+ram:00399a60 54a503 ; b.andi r5,r5,0x3
+ram:00399a63 50e08c ; b.ori r7,r0,0x8c
+ram:00399a66 40e72b ; b.mul r7,r7,r5
+ram:00399a69 c0c00781 ; b.movhi r6,0x3c
+ram:00399a6d fcc63440 ; b.addi r6,r6,0x3440
+ram:00399a71 8cc7 ; b.add r6,r6,r7
+ram:00399a73 8529 ; b.jr r9
+ram:00399a75 e8c80005 ; b.lhz r6,0x4(r8)
+ram:00399a79 9cc1 ; b.addi r6,r6,0x1
+ram:00399a7b ecc80005 ; b.sh 0x4(r8),r6
+ram:00399a7f 54e63f ; b.andi r7,r6,0x3f
+ram:00399a82 4ce718 ; b.slli r7,r7,0x3
+ram:00399a85 8ce8 ; b.add r7,r7,r8
+ram:00399a87 0cc721 ; b.sh 0x20(r7),r6
+ram:00399a8a f8670022 ; b.sb 0x22(r7),r3
+ram:00399a8e 188723 ; b.sb 0x23(r7),r4
+ram:00399a91 18a724 ; b.sb 0x24(r7),r5
+ram:00399a94 ecc8001e ; b.lwz r6,0x1c(r8)
+ram:00399a98 18c725 ; b.sb 0x25(r7),r6
+ram:00399a9b 4cc641 ; b.srli r6,r6,0x8
+ram:00399a9e 18c726 ; b.sb 0x26(r7),r6
+ram:00399aa1 4cc641 ; b.srli r6,r6,0x8
+ram:00399aa4 18c727 ; b.sb 0x27(r7),r6
+ram:00399aa7 8529 ; b.jr r9
+ram:00399aa9 c0e00981 ; b.movhi r7,0x4c
+ram:00399aad f0c71b14 ; b.lbz r6,0x1b14(r7)
+ram:00399ab1 c10009e1 ; b.movhi r8,0x4f
+ram:00399ab5 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399ab9 f0a71b1f ; b.lbz r5,0x1b1f(r7)
+ram:00399abd 4ca540 ; b.slli r5,r5,0x8
+ram:00399ac0 f0871b1e ; b.lbz r4,0x1b1e(r7)
+ram:00399ac4 44a525 ; b.or r5,r5,r4
+ram:00399ac7 c0c01e00 ; b.sfeqi r6,0xf0
+ram:00399acb d4000067 ; b.bnf 0x399ad7
+ram:00399acf eca80235 ; b.sh 0x234(r8),r5
+ram:00399ad3 e40000f3 ; b.j 0x399b4c
+ram:00399ad7 c0c01e20 ; b.sfeqi r6,0xf1
+ram:00399adb d4000067 ; b.bnf 0x399ae7
+ram:00399adf eca80237 ; b.sh 0x236(r8),r5
+ram:00399ae3 e40000d3 ; b.j 0x399b4c
+ram:00399ae7 c0c01e80 ; b.sfeqi r6,0xf4
+ram:00399aeb d40001f7 ; b.bnf 0x399b29
+ram:00399aef 1c21f8 ; b.addi r1,r1,-0x8
+ram:00399af2 0d2104 ; b.sw 0x4(r1),r9
+ram:00399af5 e400041c ; b.jal 0x399d03
+ram:00399af9 c0c00401 ; b.movhi r6,0x20
+ram:00399afd c8c64000 ; b.ori r6,r6,0x4000
+ram:00399b01 5cc71f ; b.sfgtu r6,r7
+ram:00399b04 d40000e3 ; b.bf 0x399b20
+ram:00399b08 c0c00401 ; b.movhi r6,0x20
+ram:00399b0c c8c64400 ; b.ori r6,r6,0x4400
+ram:00399b10 5cc717 ; b.sfleu r6,r7
+ram:00399b13 d400006b ; b.bf 0x399b20
+ram:00399b17 188700 ; b.sb 0x0(r7),r4
+ram:00399b1a 9ce1 ; b.addi r7,r7,0x1
+ram:00399b1c e40003ee ; b.jal 0x399d13
+ram:00399b20 0d2106 ; b.lwz r9,0x4(r1)
+ram:00399b23 9c28 ; b.addi r1,r1,0x8
+ram:00399b25 e400004f ; b.j 0x399b4c
+ram:00399b29 c0c01ec0 ; b.sfeqi r6,0xf6
+ram:00399b2d d400011f ; b.bnf 0x399b50
+ram:00399b31 c0800dce ; b.sfgtui r4,0x6e
+ram:00399b35 d40000bb ; b.bf 0x399b4c
+ram:00399b39 1c21f8 ; b.addi r1,r1,-0x8
+ram:00399b3c 0d2104 ; b.sw 0x4(r1),r9
+ram:00399b3f 8864 ; b.mov r3,r4
+ram:00399b41 9881 ; b.movi r4,0x1
+ram:00399b43 e7dd5a82 ; b.jal 0x284884
+ram:00399b47 0d2106 ; b.lwz r9,0x4(r1)
+ram:00399b4a 9c28 ; b.addi r1,r1,0x8
+ram:00399b4c 9860 ; b.movi r3,0x0
+ram:00399b4e 8529 ; b.jr r9
+ram:00399b50 c0e00981 ; b.movhi r7,0x4c
+ram:00399b54 c0c01d60 ; b.sfeqi r6,0xeb
+ram:00399b58 d4000117 ; b.bnf 0x399b7a
+ram:00399b5c c10009e1 ; b.movhi r8,0x4f
+ram:00399b60 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399b64 f0c71b1f ; b.lbz r6,0x1b1f(r7)
+ram:00399b68 4cc640 ; b.slli r6,r6,0x8
+ram:00399b6b f0a71b1e ; b.lbz r5,0x1b1e(r7)
+ram:00399b6f 44c62d ; b.or r6,r6,r5
+ram:00399b72 ecc80007 ; b.sh 0x6(r8),r6
+ram:00399b76 9860 ; b.movi r3,0x0
+ram:00399b78 8529 ; b.jr r9
+ram:00399b7a 5ccc01 ; b.sfeqi r6,0x60
+ram:00399b7d d4000083 ; b.bf 0x399b8d
+ram:00399b81 c0c01ac0 ; b.sfeqi r6,0xd6
+ram:00399b85 d4000043 ; b.bf 0x399b8d
+ram:00399b89 e7dadf79 ; b.j 0x270b45
+ram:00399b8d 1c21f8 ; b.addi r1,r1,-0x8
+ram:00399b90 0d2104 ; b.sw 0x4(r1),r9
+ram:00399b93 c10009e1 ; b.movhi r8,0x4f
+ram:00399b97 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399b9b 0ce802 ; b.lwz r7,0x0(r8)
+ram:00399b9e c0a8aac1 ; b.movhi r5,0x4556
+ram:00399ba2 c8a55431 ; b.ori r5,r5,0x5431
+ram:00399ba6 d4e502a6 ; b.bne r7,r5,0x399bfa
+ram:00399baa e7fffd20 ; b.jal 0x399a3a
+ram:00399bae 8885 ; b.mov r4,r5
+ram:00399bb0 c0e00981 ; b.movhi r7,0x4c
+ram:00399bb4 f0a71b1e ; b.lbz r5,0x1b1e(r7)
+ram:00399bb8 f0c71b14 ; b.lbz r6,0x1b14(r7)
+ram:00399bbc 506013 ; b.ori r3,r0,0x13
+ram:00399bbf 5ccc01 ; b.sfeqi r6,0x60
+ram:00399bc2 d400003f ; b.bnf 0x399bc9
+ram:00399bc6 506010 ; b.ori r3,r0,0x10
+ram:00399bc9 e7fffd58 ; b.jal 0x399a75
+ram:00399bcd c0e00981 ; b.movhi r7,0x4c
+ram:00399bd1 f0c71b14 ; b.lbz r6,0x1b14(r7)
+ram:00399bd5 5ccc01 ; b.sfeqi r6,0x60
+ram:00399bd8 d4000117 ; b.bnf 0x399bfa
+ram:00399bdc f0a71b1e ; b.lbz r5,0x1b1e(r7)
+ram:00399be0 9880 ; b.movi r4,0x0
+ram:00399be2 d0a90062 ; b.beqi r5,0x9,0x399bee
+ram:00399be6 9881 ; b.movi r4,0x1
+ram:00399be8 d0a60032 ; b.beqi r5,0x6,0x399bee
+ram:00399bec 988f ; b.movi r4,0xf
+ram:00399bee f8880014 ; b.sb 0x14(r8),r4
+ram:00399bf2 ecc8001e ; b.lwz r6,0x1c(r8)
+ram:00399bf6 ecc80018 ; b.sw 0x18(r8),r6
+ram:00399bfa 0d2106 ; b.lwz r9,0x4(r1)
+ram:00399bfd 9c28 ; b.addi r1,r1,0x8
+ram:00399bff e7dade8d ; b.j 0x270b45
+ram:00399c03 c10009e1 ; b.movhi r8,0x4f
+ram:00399c07 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399c0b c0c00981 ; b.movhi r6,0x4c
+ram:00399c0f 50e040 ; b.ori r7,r0,0x40
+ram:00399c12 f8e61b1f ; b.sb 0x1b1f(r6),r7
+ram:00399c16 98e2 ; b.movi r7,0x2
+ram:00399c18 f8e61b1e ; b.sb 0x1b1e(r6),r7
+ram:00399c1c e8a80005 ; b.lhz r5,0x4(r8)
+ram:00399c20 e4000175 ; b.j 0x399cda
+ram:00399c24 c10009e1 ; b.movhi r8,0x4f
+ram:00399c28 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399c2c c0c00981 ; b.movhi r6,0x4c
+ram:00399c30 f8061b1f ; b.sb 0x1b1f(r6),r0
+ram:00399c34 f8061b1e ; b.sb 0x1b1e(r6),r0
+ram:00399c38 08a807 ; b.lhz r5,0x6(r8)
+ram:00399c3b e400013f ; b.j 0x399cda
+ram:00399c3f e4000154 ; b.jal 0x399ce9
+ram:00399c43 f0a70022 ; b.lbz r5,0x22(r7)
+ram:00399c47 f8a61b1f ; b.sb 0x1b1f(r6),r5
+ram:00399c4b f0a70023 ; b.lbz r5,0x23(r7)
+ram:00399c4f f8a61b1e ; b.sb 0x1b1e(r6),r5
+ram:00399c53 f0a70024 ; b.lbz r5,0x24(r7)
+ram:00399c57 f8a61b18 ; b.sb 0x1b18(r6),r5
+ram:00399c5b 10a720 ; b.lbz r5,0x20(r7)
+ram:00399c5e f8a61b15 ; b.sb 0x1b15(r6),r5
+ram:00399c62 e7dac0e3 ; b.j 0x26fcd3
+ram:00399c66 e4000106 ; b.jal 0x399ce9
+ram:00399c6a 10a720 ; b.lbz r5,0x20(r7)
+ram:00399c6d f8a61b1f ; b.sb 0x1b1f(r6),r5
+ram:00399c71 f0a70027 ; b.lbz r5,0x27(r7)
+ram:00399c75 f8a61b1e ; b.sb 0x1b1e(r6),r5
+ram:00399c79 10a726 ; b.lbz r5,0x26(r7)
+ram:00399c7c f8a61b18 ; b.sb 0x1b18(r6),r5
+ram:00399c80 f0a70025 ; b.lbz r5,0x25(r7)
+ram:00399c84 f8a61b15 ; b.sb 0x1b15(r6),r5
+ram:00399c88 e7dac097 ; b.j 0x26fcd3
+ram:00399c8c c10009e1 ; b.movhi r8,0x4f
+ram:00399c90 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399c94 c0c00981 ; b.movhi r6,0x4c
+ram:00399c98 f0a8000c ; b.lbz r5,0xc(r8)
+ram:00399c9c f8a61b1f ; b.sb 0x1b1f(r6),r5
+ram:00399ca0 f0a8000d ; b.lbz r5,0xd(r8)
+ram:00399ca4 f8a61b1e ; b.sb 0x1b1e(r6),r5
+ram:00399ca8 f0a8000e ; b.lbz r5,0xe(r8)
+ram:00399cac f8a61b18 ; b.sb 0x1b18(r6),r5
+ram:00399cb0 f0a80011 ; b.lbz r5,0x11(r8)
+ram:00399cb4 f8a61b15 ; b.sb 0x1b15(r6),r5
+ram:00399cb8 e7dac037 ; b.j 0x26fcd3
+ram:00399cbc c10009e1 ; b.movhi r8,0x4f
+ram:00399cc0 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399cc4 c0c00981 ; b.movhi r6,0x4c
+ram:00399cc8 eca8001e ; b.lwz r5,0x1c(r8)
+ram:00399ccc 4ce5c1 ; b.srli r7,r5,0x18
+ram:00399ccf f8e61b1f ; b.sb 0x1b1f(r6),r7
+ram:00399cd3 4ce581 ; b.srli r7,r5,0x10
+ram:00399cd6 f8e61b1e ; b.sb 0x1b1e(r6),r7
+ram:00399cda 4ce541 ; b.srli r7,r5,0x8
+ram:00399cdd f8e61b18 ; b.sb 0x1b18(r6),r7
+ram:00399ce1 f8a61b15 ; b.sb 0x1b15(r6),r5
+ram:00399ce5 e7dabfdd ; b.j 0x26fcd3
+ram:00399ce9 c10009e1 ; b.movhi r8,0x4f
+ram:00399ced c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399cf1 e8e80007 ; b.lhz r7,0x6(r8)
+ram:00399cf5 54e73f ; b.andi r7,r7,0x3f
+ram:00399cf8 4ce718 ; b.slli r7,r7,0x3
+ram:00399cfb 8ce8 ; b.add r7,r7,r8
+ram:00399cfd c0c00981 ; b.movhi r6,0x4c
+ram:00399d01 8529 ; b.jr r9
+ram:00399d03 e8e80235 ; b.lhz r7,0x234(r8)
+ram:00399d07 4ce780 ; b.slli r7,r7,0x10
+ram:00399d0a e8c80237 ; b.lhz r6,0x236(r8)
+ram:00399d0e 44e735 ; b.or r7,r7,r6
+ram:00399d11 8529 ; b.jr r9
+ram:00399d13 4cc781 ; b.srli r6,r7,0x10
+ram:00399d16 ecc80235 ; b.sh 0x234(r8),r6
+ram:00399d1a ece80237 ; b.sh 0x236(r8),r7
+ram:00399d1e 8529 ; b.jr r9
+ram:00399d20 c10009e1 ; b.movhi r8,0x4f
+ram:00399d24 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399d28 c0c00981 ; b.movhi r6,0x4c
+ram:00399d2c f8061b1f ; b.sb 0x1b1f(r6),r0
+ram:00399d30 f8061b1e ; b.sb 0x1b1e(r6),r0
+ram:00399d34 e8a80235 ; b.lhz r5,0x234(r8)
+ram:00399d38 e7ffff45 ; b.j 0x399cda
+ram:00399d3c c10009e1 ; b.movhi r8,0x4f
+ram:00399d40 c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399d44 c0c00981 ; b.movhi r6,0x4c
+ram:00399d48 f8061b1f ; b.sb 0x1b1f(r6),r0
+ram:00399d4c f8061b1e ; b.sb 0x1b1e(r6),r0
+ram:00399d50 e8a80237 ; b.lhz r5,0x236(r8)
+ram:00399d54 e7ffff0d ; b.j 0x399cda
+ram:00399d58 c10009e1 ; b.movhi r8,0x4f
+ram:00399d5c c908e6b0 ; b.ori r8,r8,0xe6b0
+ram:00399d60 e7ffff46 ; b.jal 0x399d03
+ram:00399d64 c0c00401 ; b.movhi r6,0x20
+ram:00399d68 5cc71f ; b.sfgtu r6,r7
+ram:00399d6b d40001d3 ; b.bf 0x399da5
+ram:00399d6f 04c080 ; b.movhi r6,0x80
+ram:00399d72 5cc717 ; b.sfleu r6,r7
+ram:00399d75 d4000183 ; b.bf 0x399da5
+ram:00399d79 c0c00981 ; b.movhi r6,0x4c
+ram:00399d7d 10a700 ; b.lbz r5,0x0(r7)
+ram:00399d80 f8a61b1f ; b.sb 0x1b1f(r6),r5
+ram:00399d84 10a701 ; b.lbz r5,0x1(r7)
+ram:00399d87 f8a61b1e ; b.sb 0x1b1e(r6),r5
+ram:00399d8b 10a702 ; b.lbz r5,0x2(r7)
+ram:00399d8e f8a61b18 ; b.sb 0x1b18(r6),r5
+ram:00399d92 10a703 ; b.lbz r5,0x3(r7)
+ram:00399d95 f8a61b15 ; b.sb 0x1b15(r6),r5
+ram:00399d99 fce70004 ; b.addi r7,r7,0x4
+ram:00399d9d e7fffeec ; b.jal 0x399d13
+ram:00399da1 e7dabe65 ; b.j 0x26fcd3
+ram:00399da5 c0c00981 ; b.movhi r6,0x4c
+ram:00399da9 98bf ; b.movi r5,-0x1
+ram:00399dab f8a61b1f ; b.sb 0x1b1f(r6),r5
+ram:00399daf f8a61b1e ; b.sb 0x1b1e(r6),r5
+ram:00399db3 f8a61b18 ; b.sb 0x1b18(r6),r5
+ram:00399db7 f8a61b15 ; b.sb 0x1b15(r6),r5
+ram:00399dbb e7dabe31 ; b.j 0x26fcd3
+---- labels
+  done = 0x399a0c
+  f2_bad = 0x399da5
+  f4_out = 0x399b20
+  g60_store = 0x26fcc5
+  get_ea = 0x399c03
+  get_eb = 0x399c24
+  get_ec = 0x399c3f
+  get_ed = 0x399c66
+  get_ee = 0x399c8c
+  get_ef = 0x399cbc
+  get_f0 = 0x399d20
+  get_f1 = 0x399d3c
+  get_f2 = 0x399d58
+  getport = 0x399a3a
+  log = 0x399a75
+  peekaddr = 0x399d03
+  pend = 0x3999b4
+  pend_time = 0x3999ec
+  poll = 0x399820
+  portstruct = 0x399a4e
+  put_chcl = 0x399cda
+  recptr = 0x399ce9
+  scan = 0x39993b
+  scan_cnt = 0x3999a4
+  scan_loop = 0x399941
+  scan_next = 0x39998c
+  setaddr = 0x399d13
+  sethook = 0x399aa9
+  sh_60 = 0x399b7a
+  sh_dolog = 0x399bc9
+  sh_eb = 0x399b50
+  sh_f1 = 0x399ad7
+  sh_f4 = 0x399ae7
+  sh_f6 = 0x399b29
+  sh_log = 0x399b8d
+  sh_ok = 0x399b4c
+  sh_out = 0x399bfa
+  sh_req = 0x399bee
+  th_out = 0x399a36
+  tick = 0x399863
+  tickhook = 0x399a13
+  w2 = 0x399879
+  w3 = 0x399896
+  w4 = 0x3998b3
+  w5 = 0x3998cd
+  w6 = 0x3998e6
+  w6_cmp = 0x3998f5
+  w7 = 0x399907
+  w8 = 0x399921
+---- disassembly check
+0026fc9b  b.movi r7,0xe                            
+0026fc9d  b.movhi r5,0x4c                          
+0026fca1  b.sb 0x1b1e(r5),r7                       
+0026fca5  b.movhi r6,0x3c                          
+0026fca9  b.lwz r6,0x41b0(r6)                      
+0026fcad  b.lbz r7,0xe4(r6)                        
+0026fcb1  b.add r6,r6,r7                           
+0026fcb3  b.lbz r5,0xe5(r6)                        
+0026fcb7  b.movi r7,0x9                            
+0026fcb9  b.beqi r5,0x0,0x0026fcc5                 
+0026fcbd  b.movi r7,0x6                            
+0026fcbf  b.beqi r5,0x1,0x0026fcc5                 
+0026fcc3  b.movi r7,0xa                            
+0026fcc5  b.movhi r6,0x4c                          
+0026fcc9  b.sb 0x1b15(r6),r7                       
+0026fccd  b.j 0x0026fcd3                           
+002001a7  b.ori r4,r4,0xeeb0                       
+0024d885  b.j 0x00399a13                           
+0026b6d3  b.jal 0x00399820                         
+0027123d  b.jal 0x00399aa9                         
+00399820  b.addi r1,r1,-0x8                        
+00399823  b.sw 0x4(r1),r9                          
+00399826  b.jal 0x00212fc6                         
+0039982a  b.movhi r8,0x4f                          
+0039982e  b.ori r8,r8,0xe6b0                       
+00399832  b.lwz r7,0x0(r8)                         
+00399835  b.movhi r6,0x4556                        
+00399839  b.ori r6,r6,0x5431                       
+0039983d  b.beq r7,r6,0x00399863                   
+00399841  b.sw 0x0(r8),r6                          
+00399844  b.movhi r6,0xeeee                        
+00399848  b.ori r6,r6,0xeeee                       
+0039984c  b.sw 0xc(r8),r6                          
+0039984f  b.sw 0x10(r8),r6                         
+00399853  b.movi r7,0xf                            
+00399855  b.sb 0x14(r8),r7                         
+00399859  b.movi r3,0x0                            
+0039985b  b.movi r4,0x0                            
+0039985d  b.movi r5,0x0                            
+0039985f  b.jal 0x00399a75                         
+00399863  b.jal 0x00399a3a                         
+00399867  b.lbz r4,0xc(r8)                         
+0039986b  b.beq r4,r5,0x00399879                   
+0039986f  b.sb 0xc(r8),r5                          
+00399873  b.movi r3,0x1                            
+00399875  b.jal 0x00399a75                         
+00399879  b.movhi r6,0x3c                          
+0039987d  b.lwz r6,0x41b0(r6)                      
+00399881  b.lbz r5,0xde(r6)                        
+00399885  b.lbz r4,0xd(r8)                         
+00399888  b.beq r4,r5,0x00399896                   
+0039988c  b.sb 0xd(r8),r5                          
+00399890  b.movi r3,0x2                            
+00399892  b.jal 0x00399a75                         
+00399896  b.movhi r6,0x3c                          
+0039989a  b.lwz r6,0x41b0(r6)                      
+0039989e  b.lbz r5,0xd7(r6)                        
+003998a2  b.lbz r4,0xe(r8)                         
+003998a5  b.beq r4,r5,0x003998b3                   
+003998a9  b.sb 0xe(r8),r5                          
+003998ad  b.movi r3,0x3                            
+003998af  b.jal 0x00399a75                         
+003998b3  b.movhi r6,0x4d                          
+003998b7  b.lbz r5,-0x5874(r6)                     
+003998bb  b.lbz r4,0xf(r8)                         
+003998bf  b.beq r4,r5,0x003998cd                   
+003998c3  b.sb 0xf(r8),r5                          
+003998c7  b.movi r3,0x4                            
+003998c9  b.jal 0x00399a75                         
+003998cd  b.jal 0x00399a4e                         
+003998d1  b.lbz r5,0x1c(r6)                        
+003998d4  b.lbz r4,0x10(r8)                        
+003998d8  b.beq r4,r5,0x003998e6                   
+003998dc  b.sb 0x10(r8),r5                         
+003998e0  b.movi r3,0x5                            
+003998e2  b.jal 0x00399a75                         
+003998e6  b.jal 0x00399a4e                         
+003998ea  b.lhz r7,0x22(r6)                        
+003998ed  b.movi r5,0x0                            
+003998ef  b.beqi r7,0x0,0x003998f5                 
+003998f3  b.movi r5,0x1                            
+003998f5  b.lbz r4,0x11(r8)                        
+003998f9  b.beq r4,r5,0x00399907                   
+003998fd  b.sb 0x11(r8),r5                         
+00399901  b.movi r3,0x6                            
+00399903  b.jal 0x00399a75                         
+00399907  b.movhi r6,0x4d                          
+0039990b  b.lbz r5,-0x141c(r6)                     
+0039990f  b.lbz r4,0x12(r8)                        
+00399913  b.beq r4,r5,0x00399921                   
+00399917  b.sb 0x12(r8),r5                         
+0039991b  b.movi r3,0x7                            
+0039991d  b.jal 0x00399a75                         
+00399921  b.movhi r6,0x4f                          
+00399925  b.lbz r5,-0x36d3(r6)                     
+00399929  b.lbz r4,0x13(r8)                        
+0039992d  b.beq r4,r5,0x0039993b                   
+00399931  b.sb 0x13(r8),r5                         
+00399935  b.movi r3,0x8                            
+00399937  b.jal 0x00399a75                         
+0039993b  b.movi r7,0x8                            
+0039993d  b.sb 0x232(r8),r7                        
+00399941  b.lhz r4,0x230(r8)                       
+00399945  b.movhi r6,0x20                          
+00399949  b.ori r6,r6,0x4000                       
+0039994d  b.add r6,r6,r4                           
+0039994f  b.lbz r5,0x0(r6)                         
+00399952  b.add r7,r8,r4                           
+00399955  b.lbz r6,0x400(r7)                       
+00399959  b.beq r5,r6,0x0039998c                   
+0039995d  b.sb 0x400(r7),r5                        
+00399961  b.lbz r6,0x238(r8)                       
+00399965  b.beqi r6,0x0,0x0039998c                 
+00399969  b.srli r6,r4,0x3                         
+0039996c  b.add r6,r6,r8                           
+0039996e  b.lbz r6,0x600(r6)                       
+00399972  b.andi r7,r4,0x7                         
+00399975  b.srl r6,r6,r7                           
+00399978  b.andi r6,r6,0x1                         
+0039997b  b.bnei r6,0x0,0x0039998c                 
+0039997f  b.srli r3,r4,0x8                         
+00399982  b.ori r3,r3,0x20                         
+00399985  b.andi r4,r4,0xff                        
+00399988  b.jal 0x00399a75                         
+0039998c  b.lhz r4,0x230(r8)                       
+00399990  b.addi r4,r4,0x1                         
+00399992  b.andi r4,r4,0x1ff                       
+00399996  b.sh 0x230(r8),r4                        
+0039999a  b.bnei r4,0x0,0x003999a4                 
+0039999e  b.movi r7,0x1                            
+003999a0  b.sb 0x238(r8),r7                        
+003999a4  b.lbz r7,0x232(r8)                       
+003999a8  b.addi r7,r7,-0x1                        
+003999ac  b.sb 0x232(r8),r7                        
+003999b0  b.bnei r7,0x0,0x00399941                 
+003999b4  b.lbz r4,0x14(r8)                        
+003999b7  b.beqi r4,0xf,0x00399a0c                 
+003999bb  b.jal 0x00399a3a                         
+003999bf  b.lbz r4,0x14(r8)                        
+003999c2  b.bne r4,r5,0x003999ec                   
+003999c6  b.jal 0x00399a4e                         
+003999ca  b.lbz r7,0x1c(r6)                        
+003999cd  b.sfeqi r7,0xa                           
+003999d0  b.bnf 0x003999ec                         
+003999d4  b.jal 0x00399a3a                         
+003999d8  b.lbz r4,0x14(r8)                        
+003999db  b.ori r3,r0,0x11                         
+003999de  b.jal 0x00399a75                         
+003999e2  b.movi r7,0xf                            
+003999e4  b.sb 0x14(r8),r7                         
+003999e8  b.j 0x00399a0c                           
+003999ec  b.lwz r6,0x1c(r8)                        
+003999f0  b.lwz r7,0x18(r8)                        
+003999f4  b.sub r6,r6,r7                           
+003999f7  b.sfgtui r6,0x320                        
+003999fb  b.bnf 0x00399a0c                         
+003999ff  b.ori r3,r0,0x12                         
+00399a02  b.jal 0x00399a75                         
+00399a06  b.movi r7,0xf                            
+00399a08  b.sb 0x14(r8),r7                         
+00399a0c  b.lwz r9,0x4(r1)                         
+00399a0f  b.addi r1,r1,0x8                         
+00399a11  b.jr r9                                  
+00399a13  b.movhi r6,0x4f                          
+00399a17  b.ori r6,r6,0xe6b0                       
+00399a1b  b.lbz r7,0x8(r6)                         
+00399a1e  b.addi r7,r7,0x1                         
+00399a20  b.sb 0x8(r6),r7                          
+00399a23  b.sfgtui r7,0x9                          
+00399a27  b.bnf 0x00399a36                         
+00399a2b  b.sb 0x8(r6),r0                          
+00399a2e  b.lwz r7,0x1c(r6)                        
+00399a31  b.addi r7,r7,0x1                         
+00399a33  b.sw 0x1c(r6),r7                         
+00399a36  b.j 0x0028ba15                           
+00399a3a  b.movhi r6,0x3c                          
+00399a3e  b.lwz r6,0x41b0(r6)                      
+00399a42  b.lbz r7,0xe4(r6)                        
+00399a46  b.add r6,r6,r7                           
+00399a48  b.lbz r5,0xe5(r6)                        
+00399a4c  b.jr r9                                  
+00399a4e  b.movhi r6,0x3c                          
+00399a52  b.lwz r6,0x41b0(r6)                      
+00399a56  b.lbz r7,0xe4(r6)                        
+00399a5a  b.add r6,r6,r7                           
+00399a5c  b.lbz r5,0xe5(r6)                        
+00399a60  b.andi r5,r5,0x3                         
+00399a63  b.ori r7,r0,0x8c                         
+00399a66  b.mul r7,r7,r5                           
+00399a69  b.movhi r6,0x3c                          
+00399a6d  b.addi r6,r6,0x3440                      
+00399a71  b.add r6,r6,r7                           
+00399a73  b.jr r9                                  
+00399a75  b.lhz r6,0x4(r8)                         
+00399a79  b.addi r6,r6,0x1                         
+00399a7b  b.sh 0x4(r8),r6                          
+00399a7f  b.andi r7,r6,0x3f                        
+00399a82  b.slli r7,r7,0x3                         
+00399a85  b.add r7,r7,r8                           
+00399a87  b.sh 0x20(r7),r6                         
+00399a8a  b.sb 0x22(r7),r3                         
+00399a8e  b.sb 0x23(r7),r4                         
+00399a91  b.sb 0x24(r7),r5                         
+00399a94  b.lwz r6,0x1c(r8)                        
+00399a98  b.sb 0x25(r7),r6                         
+00399a9b  b.srli r6,r6,0x8                         
+00399a9e  b.sb 0x26(r7),r6                         
+00399aa1  b.srli r6,r6,0x8                         
+00399aa4  b.sb 0x27(r7),r6                         
+00399aa7  b.jr r9                                  
+00399aa9  b.movhi r7,0x4c                          
+00399aad  b.lbz r6,0x1b14(r7)                      
+00399ab1  b.movhi r8,0x4f                          
+00399ab5  b.ori r8,r8,0xe6b0                       
+00399ab9  b.lbz r5,0x1b1f(r7)                      
+00399abd  b.slli r5,r5,0x8                         
+00399ac0  b.lbz r4,0x1b1e(r7)                      
+00399ac4  b.or r5,r5,r4                            
+00399ac7  b.sfeqi r6,0xf0                          
+00399acb  b.bnf 0x00399ad7                         
+00399acf  b.sh 0x234(r8),r5                        
+00399ad3  b.j 0x00399b4c                           
+00399ad7  b.sfeqi r6,0xf1                          
+00399adb  b.bnf 0x00399ae7                         
+00399adf  b.sh 0x236(r8),r5                        
+00399ae3  b.j 0x00399b4c                           
+00399ae7  b.sfeqi r6,0xf4                          
+00399aeb  b.bnf 0x00399b29                         
+00399aef  b.addi r1,r1,-0x8                        
+00399af2  b.sw 0x4(r1),r9                          
+00399af5  b.jal 0x00399d03                         
+00399af9  b.movhi r6,0x20                          
+00399afd  b.ori r6,r6,0x4000                       
+00399b01  b.sfgtu r6,r7                            
+00399b04  b.bf 0x00399b20                          
+00399b08  b.movhi r6,0x20                          
+00399b0c  b.ori r6,r6,0x4400                       
+00399b10  b.sfleu r6,r7                            
+00399b13  b.bf 0x00399b20                          
+00399b17  b.sb 0x0(r7),r4                          
+00399b1a  b.addi r7,r7,0x1                         
+00399b1c  b.jal 0x00399d13                         
+00399b20  b.lwz r9,0x4(r1)                         
+00399b23  b.addi r1,r1,0x8                         
+00399b25  b.j 0x00399b4c                           
+00399b29  b.sfeqi r6,0xf6                          
+00399b2d  b.bnf 0x00399b50                         
+00399b31  b.sfgtui r4,0x6e                         
+00399b35  b.bf 0x00399b4c                          
+00399b39  b.addi r1,r1,-0x8                        
+00399b3c  b.sw 0x4(r1),r9                          
+00399b3f  b.mov r3,r4                              
+00399b41  b.movi r4,0x1                            
+00399b43  b.jal 0x00284884                         
+00399b47  b.lwz r9,0x4(r1)                         
+00399b4a  b.addi r1,r1,0x8                         
+00399b4c  b.movi r3,0x0                            
+00399b4e  b.jr r9                                  
+00399b50  b.movhi r7,0x4c                          
+00399b54  b.sfeqi r6,0xeb                          
+00399b58  b.bnf 0x00399b7a                         
+00399b5c  b.movhi r8,0x4f                          
+00399b60  b.ori r8,r8,0xe6b0                       
+00399b64  b.lbz r6,0x1b1f(r7)                      
+00399b68  b.slli r6,r6,0x8                         
+00399b6b  b.lbz r5,0x1b1e(r7)                      
+00399b6f  b.or r6,r6,r5                            
+00399b72  b.sh 0x6(r8),r6                          
+00399b76  b.movi r3,0x0                            
+00399b78  b.jr r9                                  
+00399b7a  b.sfeqi r6,0x60                          
+00399b7d  b.bf 0x00399b8d                          
+00399b81  b.sfeqi r6,0xd6                          
+00399b85  b.bf 0x00399b8d                          
+00399b89  b.j 0x00270b45                           
+00399b8d  b.addi r1,r1,-0x8                        
+00399b90  b.sw 0x4(r1),r9                          
+00399b93  b.movhi r8,0x4f                          
+00399b97  b.ori r8,r8,0xe6b0                       
+00399b9b  b.lwz r7,0x0(r8)                         
+00399b9e  b.movhi r5,0x4556                        
+00399ba2  b.ori r5,r5,0x5431                       
+00399ba6  b.bne r7,r5,0x00399bfa                   
+00399baa  b.jal 0x00399a3a                         
+00399bae  b.mov r4,r5                              
+00399bb0  b.movhi r7,0x4c                          
+00399bb4  b.lbz r5,0x1b1e(r7)                      
+00399bb8  b.lbz r6,0x1b14(r7)                      
+00399bbc  b.ori r3,r0,0x13                         
+00399bbf  b.sfeqi r6,0x60                          
+00399bc2  b.bnf 0x00399bc9                         
+00399bc6  b.ori r3,r0,0x10                         
+00399bc9  b.jal 0x00399a75                         
+00399bcd  b.movhi r7,0x4c                          
+00399bd1  b.lbz r6,0x1b14(r7)                      
+00399bd5  b.sfeqi r6,0x60                          
+00399bd8  b.bnf 0x00399bfa                         
+00399bdc  b.lbz r5,0x1b1e(r7)                      
+00399be0  b.movi r4,0x0                            
+00399be2  b.beqi r5,0x9,0x00399bee                 
+00399be6  b.movi r4,0x1                            
+00399be8  b.beqi r5,0x6,0x00399bee                 
+00399bec  b.movi r4,0xf                            
+00399bee  b.sb 0x14(r8),r4                         
+00399bf2  b.lwz r6,0x1c(r8)                        
+00399bf6  b.sw 0x18(r8),r6                         
+00399bfa  b.lwz r9,0x4(r1)                         
+00399bfd  b.addi r1,r1,0x8                         
+00399bff  b.j 0x00270b45                           
+00399c03  b.movhi r8,0x4f                          
+00399c07  b.ori r8,r8,0xe6b0                       
+00399c0b  b.movhi r6,0x4c                          
+00399c0f  b.ori r7,r0,0x40                         
+00399c12  b.sb 0x1b1f(r6),r7                       
+00399c16  b.movi r7,0x2                            
+00399c18  b.sb 0x1b1e(r6),r7                       
+00399c1c  b.lhz r5,0x4(r8)                         
+00399c20  b.j 0x00399cda                           
+00399c24  b.movhi r8,0x4f                          
+00399c28  b.ori r8,r8,0xe6b0                       
+00399c2c  b.movhi r6,0x4c                          
+00399c30  b.sb 0x1b1f(r6),r0                       
+00399c34  b.sb 0x1b1e(r6),r0                       
+00399c38  b.lhz r5,0x6(r8)                         
+00399c3b  b.j 0x00399cda                           
+00399c3f  b.jal 0x00399ce9                         
+00399c43  b.lbz r5,0x22(r7)                        
+00399c47  b.sb 0x1b1f(r6),r5                       
+00399c4b  b.lbz r5,0x23(r7)                        
+00399c4f  b.sb 0x1b1e(r6),r5                       
+00399c53  b.lbz r5,0x24(r7)                        
+00399c57  b.sb 0x1b18(r6),r5                       
+00399c5b  b.lbz r5,0x20(r7)                        
+00399c5e  b.sb 0x1b15(r6),r5                       
+00399c62  b.j 0x0026fcd3                           
+00399c66  b.jal 0x00399ce9                         
+00399c6a  b.lbz r5,0x20(r7)                        
+00399c6d  b.sb 0x1b1f(r6),r5                       
+00399c71  b.lbz r5,0x27(r7)                        
+00399c75  b.sb 0x1b1e(r6),r5                       
+00399c79  b.lbz r5,0x26(r7)                        
+00399c7c  b.sb 0x1b18(r6),r5                       
+00399c80  b.lbz r5,0x25(r7)                        
+00399c84  b.sb 0x1b15(r6),r5                       
+00399c88  b.j 0x0026fcd3                           
+00399c8c  b.movhi r8,0x4f                          
+00399c90  b.ori r8,r8,0xe6b0                       
+00399c94  b.movhi r6,0x4c                          
+00399c98  b.lbz r5,0xc(r8)                         
+00399c9c  b.sb 0x1b1f(r6),r5                       
+00399ca0  b.lbz r5,0xd(r8)                         
+00399ca4  b.sb 0x1b1e(r6),r5                       
+00399ca8  b.lbz r5,0xe(r8)                         
+00399cac  b.sb 0x1b18(r6),r5                       
+00399cb0  b.lbz r5,0x11(r8)                        
+00399cb4  b.sb 0x1b15(r6),r5                       
+00399cb8  b.j 0x0026fcd3                           
+00399cbc  b.movhi r8,0x4f                          
+00399cc0  b.ori r8,r8,0xe6b0                       
+00399cc4  b.movhi r6,0x4c                          
+00399cc8  b.lwz r5,0x1c(r8)                        
+00399ccc  b.srli r7,r5,0x18                        
+00399ccf  b.sb 0x1b1f(r6),r7                       
+00399cd3  b.srli r7,r5,0x10                        
+00399cd6  b.sb 0x1b1e(r6),r7                       
+00399cda  b.srli r7,r5,0x8                         
+00399cdd  b.sb 0x1b18(r6),r7                       
+00399ce1  b.sb 0x1b15(r6),r5                       
+00399ce5  b.j 0x0026fcd3                           
+00399ce9  b.movhi r8,0x4f                          
+00399ced  b.ori r8,r8,0xe6b0                       
+00399cf1  b.lhz r7,0x6(r8)                         
+00399cf5  b.andi r7,r7,0x3f                        
+00399cf8  b.slli r7,r7,0x3                         
+00399cfb  b.add r7,r7,r8                           
+00399cfd  b.movhi r6,0x4c                          
+00399d01  b.jr r9                                  
+00399d03  b.lhz r7,0x234(r8)                       
+00399d07  b.slli r7,r7,0x10                        
+00399d0a  b.lhz r6,0x236(r8)                       
+00399d0e  b.or r7,r7,r6                            
+00399d11  b.jr r9                                  
+00399d13  b.srli r6,r7,0x10                        
+00399d16  b.sh 0x234(r8),r6                        
+00399d1a  b.sh 0x236(r8),r7                        
+00399d1e  b.jr r9                                  
+00399d20  b.movhi r8,0x4f                          
+00399d24  b.ori r8,r8,0xe6b0                       
+00399d28  b.movhi r6,0x4c                          
+00399d2c  b.sb 0x1b1f(r6),r0                       
+00399d30  b.sb 0x1b1e(r6),r0                       
+00399d34  b.lhz r5,0x234(r8)                       
+00399d38  b.j 0x00399cda                           
+00399d3c  b.movhi r8,0x4f                          
+00399d40  b.ori r8,r8,0xe6b0                       
+00399d44  b.movhi r6,0x4c                          
+00399d48  b.sb 0x1b1f(r6),r0                       
+00399d4c  b.sb 0x1b1e(r6),r0                       
+00399d50  b.lhz r5,0x236(r8)                       
+00399d54  b.j 0x00399cda                           
+00399d58  b.movhi r8,0x4f                          
+00399d5c  b.ori r8,r8,0xe6b0                       
+00399d60  b.jal 0x00399d03                         
+00399d64  b.movhi r6,0x20                          
+00399d68  b.sfgtu r6,r7                            
+00399d6b  b.bf 0x00399da5                          
+00399d6f  b.movhi r6,0x80                          
+00399d72  b.sfleu r6,r7                            
+00399d75  b.bf 0x00399da5                          
+00399d79  b.movhi r6,0x4c                          
+00399d7d  b.lbz r5,0x0(r7)                         
+00399d80  b.sb 0x1b1f(r6),r5                       
+00399d84  b.lbz r5,0x1(r7)                         
+00399d87  b.sb 0x1b1e(r6),r5                       
+00399d8b  b.lbz r5,0x2(r7)                         
+00399d8e  b.sb 0x1b18(r6),r5                       
+00399d92  b.lbz r5,0x3(r7)                         
+00399d95  b.sb 0x1b15(r6),r5                       
+00399d99  b.addi r7,r7,0x4                         
+00399d9d  b.jal 0x00399d13                         
+00399da1  b.j 0x0026fcd3                           
+00399da5  b.movhi r6,0x4c                          
+00399da9  b.movi r5,-0x1                           
+00399dab  b.sb 0x1b1f(r6),r5                       
+00399daf  b.sb 0x1b1e(r6),r5                       
+00399db3  b.sb 0x1b18(r6),r5                       
+00399db7  b.sb 0x1b15(r6),r5                       
+00399dbb  b.j 0x0026fcd3                           
+---- encoding notes

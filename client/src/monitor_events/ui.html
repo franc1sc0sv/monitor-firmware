@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor Control</title>
+<style>
+:root{--bg:#0e1116;--panel:#161b22;--line:#2a313c;--text:#e6edf3;--mute:#8b949e;--acc:#4f9dff;--ok:#3fb950;--bad:#f85149;--warn:#d29922}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f8fa;--panel:#fff;--line:#d0d7de;--text:#1f2328;--mute:#59636e;--acc:#0969da;--ok:#1a7f37;--bad:#cf222e;--warn:#9a6700}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)}
+h1{font-size:17px;margin:0}
+.pill{display:inline-flex;gap:6px;align-items:center;padding:3px 10px;border:1px solid var(--line);border-radius:99px;color:var(--mute);font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mute)} .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)}
+main{display:grid;gap:14px;padding:14px 16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));max-width:1500px;margin:auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 10px}
+.wide{grid-column:1/-1}
+.inputs{display:flex;gap:10px}
+.inbtn{flex:1;padding:16px 10px;border-radius:10px;border:2px solid var(--line);background:transparent;color:var(--text);font-size:15px;font-weight:600;cursor:pointer}
+.inbtn.active{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent)}
+.inbtn.pending{border-color:var(--warn)}
+.inbtn small{display:block;font-weight:400;color:var(--mute);margin-top:2px}
+.verdict{margin-top:10px;min-height:20px;font-size:13px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px} .kv b{font-weight:500;color:var(--mute)}
+.slider{display:grid;grid-template-columns:110px 1fr 44px;gap:10px;align-items:center;margin:6px 0}
+.slider input{width:100%}
+.slider span{text-align:right;font-variant-numeric:tabular-nums}
+select,input[type=text],input[type=number]{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit;width:100%}
+button{background:var(--acc);color:#fff;border:0;border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--line)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap} .row>*{flex:1;min-width:0} .row>button{flex:none}
+#events{height:340px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+.ev{display:grid;grid-template-columns:48px 72px 1fr;gap:8px;padding:1px 0}
+.ev .t{color:var(--mute)} .ev.k-switch-done{color:var(--ok)} .ev.k-switch-failed{color:var(--bad)} .ev.k-ddc-switch-request{color:var(--acc)} .ev.k-setting-changed{color:var(--warn)}
+.ev.flash{animation:fl 1.2s}
+@keyframes fl{from{background:color-mix(in srgb,var(--acc) 30%,transparent)}to{background:transparent}}
+#grid{overflow:auto;max-height:460px;font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+#grid table{border-collapse:collapse}
+#grid td{padding:0 4px;text-align:center;cursor:pointer;border-radius:3px}
+#grid td.addr{color:var(--mute);cursor:default;padding-right:10px}
+#grid td.named{outline:1px solid color-mix(in srgb,var(--acc) 50%,transparent)}
+#grid td.chg{background:color-mix(in srgb,var(--warn) 45%,transparent)}
+#grid td:hover{background:color-mix(in srgb,var(--acc) 25%,transparent)}
+.hint{color:var(--mute);font-size:12px;margin:6px 0}
+.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;max-width:calc(100% - 32px)}
+#toast.show{opacity:1}
+@media (max-width:520px){main{padding:12px 16px}.slider{grid-template-columns:90px 1fr 36px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>LC34G55T · firmware v3.1</h1>
+  <div class="row" style="flex:none;margin:0">
+    <span class="pill"><span class="dot" id="conn"></span><span id="connText">connecting…</span></span>
+    <span class="pill">clock <span id="clock" class="mono">–</span></span>
+    <span class="pill">events <span id="evcount" class="mono">–</span></span>
+  </div>
+</header>
+<main>
+  <section class="card">
+    <h2>Input</h2>
+    <div class="inputs">
+      <button class="inbtn" id="in-dp" onclick="switchInput('dp')">DisplayPort<small>VCP 0x09 · port 0</small></button>
+      <button class="inbtn" id="in-hdmi" onclick="switchInput('hdmi')">HDMI<small>VCP 0x06 · port 1</small></button>
+    </div>
+    <div class="verdict" id="verdict"></div>
+    <div class="kv" style="margin-top:8px">
+      <b>Actual input</b><span id="s-input">–</span>
+      <b>Signal</b><span id="s-signal">–</span>
+      <b>Power</b><span id="s-power">–</span>
+      <b>DDC paths</b><span id="s-paths">–</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Picture</h2>
+    <div id="sliders"></div>
+    <div class="slider"><label>Color preset</label>
+      <select id="preset" onchange="setVcp(0x14,+this.value)"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select><span></span></div>
+    <div class="slider"><label title="0x2041d6: when non-zero and adaptive sync is detected, the stock firmware pins the backlight to the energy-saving level">Energy cap</label>
+      <select id="energy" onchange="setVcp(0xF7,+this.value)"><option value="1">off (F7=1)</option><option value="0">on (F7=0)</option><option value="2">on (F7=2)</option><option value="3">on (F7=3)</option></select><span></span></div>
+    <p class="hint">Every change is confirmed by reading the value back from the monitor.</p>
+  </section>
+
+  <section class="card">
+    <h2>Live events</h2>
+    <div id="events"></div>
+  </section>
+
+  <section class="card wide">
+    <h2>Internal settings · 0x204000–0x2043FF</h2>
+    <p class="hint">Yellow = changed since the page was opened (monitor buttons, DDC or the firmware itself). Outlined = named setting. Click a byte to write it; known menu items are applied automatically.</p>
+    <div class="row"><button class="ghost" onclick="loadSettings()">Reload dump</button><span class="hint" id="gridInfo"></span></div>
+    <div id="grid"></div>
+  </section>
+
+  <section class="card">
+    <h2>Monitor menu</h2>
+    <p class="hint">The firmware has 111 menu items (0x00–0x6E). "Apply" runs the same code the OSD runs, using the currently stored value.</p>
+    <div class="row"><input type="text" id="item" placeholder="item (e.g. 0x0d)"><button onclick="applyItem()">Apply</button></div>
+    <h2 style="margin-top:14px">Memory</h2>
+    <div class="row"><input type="text" id="peekAddr" placeholder="hex address (e.g. 4fe6b0)"><input type="number" id="peekLen" value="32" min="4" max="512"><button onclick="peek()">Read</button></div>
+    <pre id="peekOut" class="mono" style="white-space:pre-wrap;font-size:12px;margin:6px 0 0"></pre>
+  </section>
+
+  <section class="card">
+    <h2>Raw VCP</h2>
+    <div class="row"><input type="text" id="vcpCode" placeholder="hex code (e.g. 10)"><input type="number" id="vcpVal" placeholder="value"><button class="ghost" onclick="vcpGet()">Read</button><button onclick="vcpSet()">Write</button></div>
+    <pre id="vcpOut" class="mono" style="white-space:pre-wrap;font-size:12px"></pre>
+    <button class="ghost" onclick="inventory()">Full inventory</button>
+    <pre id="invOut" class="mono" style="white-space:pre-wrap;font-size:12px"></pre>
+  </section>
+</main>
+<div id="toast"></div>
+<script>
+const SL = [[0x10,'Brightness'],[0x12,'Contrast'],[0x87,'Sharpness'],[0x16,'Red'],[0x18,'Green'],[0x1A,'Blue']];
+let settings = null, names = {}, changed = new Set(), busy = false;
+const $ = id => document.getElementById(id);
+function toast(t){ const e=$('toast'); e.textContent=t; e.classList.add('show'); clearTimeout(e._t); e._t=setTimeout(()=>e.classList.remove('show'),3500); }
+async function api(path, body){
+  const r = await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const j = await r.json(); if(!r.ok) throw new Error(j.error||r.status); return j;
+}
+function buildSliders(){
+  $('sliders').innerHTML = SL.map(([c,n])=>`<div class="slider"><label>${n}</label><input type="range" min="0" max="100" id="sl-${c}" onchange="setVcp(${c},+this.value)" oninput="$('sv-${c}').textContent=this.value"><span id="sv-${c}">–</span></div>`).join('');
+}
+async function setVcp(code, v){
+  try{ const r = await api('/api/vcp/'+code.toString(16), {value:v}); toast(`VCP 0x${code.toString(16)} = ${r.current} (attempt ${r.attempts||1})`); }
+  catch(e){ toast('Error: '+e.message); }
+  refresh();
+}
+async function refresh(){
+  try{
+    const s = await api('/api/status');
+    $('conn').className='dot ok'; $('connText').textContent='connected';
+    $('clock').textContent = s.clock_s.toFixed(1)+' s'; $('evcount').textContent = s.events;
+    $('s-input').textContent = s.input; $('s-signal').textContent = s.signal?'present':'no signal';
+    $('s-power').textContent = (s.power_on?'on':'off')+` (0x${s.power_flags.toString(16)})`;
+    $('s-paths').textContent = s.paths+' path(s) to the same monitor';
+    if(!busy){ $('in-dp').classList.toggle('active', s.input_port===0); $('in-hdmi').classList.toggle('active', s.input_port===1); }
+    const p = s.picture;
+    const map = {0x10:'brightness',0x12:'contrast',0x87:'sharpness',0x16:'red',0x18:'green',0x1A:'blue'};
+    for(const [c] of SL){ const v=p[map[c]]; if(v && document.activeElement!==$('sl-'+c)){ $('sl-'+c).value=v.current; $('sv-'+c).textContent=v.current; } }
+    if(p.color_preset) $('preset').value = p.color_preset.current;
+  }catch(e){ $('conn').className='dot bad'; $('connText').textContent='no response: '+e.message; }
+}
+async function switchInput(t){
+  if(busy) return; busy = true;
+  const btn = $('in-'+t); btn.classList.add('pending');
+  $('verdict').textContent = `Requesting ${t==='dp'?'DisplayPort':'HDMI'}… (waiting for the firmware verdict)`;
+  try{ const r = await api('/api/input', {target:t});
+    $('verdict').innerHTML = `<span style="color:var(${r.ok?'--ok':'--bad'})">${r.ok?'✔':'✖'} ${r.text}</span> · ${r.elapsed_s} s`;
+  }catch(e){ $('verdict').innerHTML = `<span style="color:var(--bad)">✖ ${e.message}</span>`; }
+  btn.classList.remove('pending'); busy = false; refresh();
+}
+function addEvent(e, flash){
+  const box=$('events'); const d=document.createElement('div');
+  d.className='ev k-'+e.name+(flash?' flash':''); d.innerHTML=`<span class="t">#${e.seq}</span><span class="t">${e.t.toFixed(2)}s</span><span>${e.text}</span>`;
+  const atBottom = box.scrollTop+box.clientHeight >= box.scrollHeight-20;
+  box.appendChild(d); if(atBottom) box.scrollTop = box.scrollHeight;
+  $('evcount').textContent = e.seq;
+  if(e.name==='setting-changed'){ const off=((e.id&1)<<8)|e.old; changed.add(off); if(settings){ settings[off]=e.new; paintCell(off); } }
+}
+async function loadEvents(){ (await api('/api/events')).forEach(e=>addEvent(e,false)); }
+function stream(){
+  const es = new EventSource('/api/stream');
+  es.addEventListener('monitor', m => { const e=JSON.parse(m.data); addEvent(e,true); if(['input-port','signal','switch-done','switch-failed','power-flags'].includes(e.name)) refresh(); });
+  es.onerror = () => { $('conn').className='dot bad'; };
+}
+function paintCell(off){
+  const td = document.getElementById('c'+off); if(!td) return;
+  td.textContent = settings[off].toString(16).padStart(2,'0');
+  td.classList.toggle('chg', changed.has(off));
+  td.title = `0x${(0x204000+off).toString(16)} = ${settings[off]}` + (names[off.toString(16)]?` · ${names[off.toString(16)]}`:'');
+}
+async function loadSettings(){
+  $('gridInfo').textContent='reading 1 KB…';
+  const t0=performance.now();
+  const s = await api('/api/settings'); names = s.names;
+  settings = []; for(let i=0;i<s.hex.length;i+=2) settings.push(parseInt(s.hex.substr(i,2),16));
+  let h='<table>'; for(let r=0;r<settings.length;r+=16){ h+=`<tr><td class="addr">${(0x204000+r).toString(16)}</td>`;
+    for(let c=0;c<16;c++){ const o=r+c; h+=`<td id="c${o}" class="${names[o.toString(16)]?'named':''}" onclick="editCell(${o})"></td>`; } h+='</tr>'; }
+  $('grid').innerHTML = h+'</table>'; for(let o=0;o<settings.length;o++) paintCell(o);
+  $('gridInfo').textContent = `read in ${((performance.now()-t0)/1000).toFixed(1)} s`;
+}
+async function editCell(off){
+  const addr=(0x204000+off).toString(16); const cur=settings[off];
+  const v = prompt(`Write 0x${addr}${names[off.toString(16)]?' ('+names[off.toString(16)]+')':''}\nCurrent value ${cur}. New value (0-255):`, cur);
+  if(v===null) return; const n=parseInt(v); if(isNaN(n)||n<0||n>255) return toast('invalid value');
+  try{ const r=await api('/api/poke',{addr, value:n}); toast(`0x${addr} = ${n}`+(r.applied_item!=null?` · applied menu item 0x${r.applied_item.toString(16)}`:' · no known menu item: use "Apply"')); settings[off]=n; paintCell(off); }
+  catch(e){ toast('Error: '+e.message); }
+}
+async function applyItem(){ try{ await api('/api/apply',{item:parseInt($('item').value)}); toast('applied'); }catch(e){ toast('Error: '+e.message);} }
+async function peek(){ try{ const r=await api(`/api/peek?addr=${$('peekAddr').value}&len=${$('peekLen').value}`); const a=parseInt(r.addr,16); let out=''; for(let i=0;i<r.hex.length;i+=32) out+=(a+i/2).toString(16)+': '+r.hex.substr(i,32).match(/../g).join(' ')+'\n'; $('peekOut').textContent=out; }catch(e){ $('peekOut').textContent='Error: '+e.message; } }
+async function vcpGet(){ try{ $('vcpOut').textContent=JSON.stringify(await api('/api/vcp/'+$('vcpCode').value)); }catch(e){ $('vcpOut').textContent='Error: '+e.message; } }
+async function vcpSet(){ try{ $('vcpOut').textContent=JSON.stringify(await api('/api/vcp/'+$('vcpCode').value,{value:+$('vcpVal').value})); }catch(e){ $('vcpOut').textContent='Error: '+e.message; } }
+async function inventory(){ $('invOut').textContent='reading…'; try{ const r=await api('/api/inventory'); $('invOut').textContent=r.map(x=>`0x${x.code.toString(16).padStart(2,'0').toUpperCase()} ${x.name.padEnd(24)} ${x.supported===null?'no reply':x.supported?`current=${x.current} max=${x.max}`:'unsupported'}`).join('\n'); }catch(e){ $('invOut').textContent='Error: '+e.message; } }
+buildSliders(); refresh(); loadEvents().then(()=>{ if(!location.search.includes('nostream')) stream(); }); loadSettings(); if(!location.search.includes('nostream')) setInterval(refresh, 4000);
+</script>
+</body>
+</html>
