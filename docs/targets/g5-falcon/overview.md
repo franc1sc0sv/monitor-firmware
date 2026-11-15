@@ -104,6 +104,9 @@ progress bar is not a reliable flash meter. Mitigation — staged flashing, neve
    Gotcha found: write the `.img` to the FAT32 stick with **native Windows**, not a WSL `/mnt` drvfs copy — the drvfs
    write did not commit to the device, so the monitor reported "no update file" until the file was really present.
 2. Flash a minimal **data-only** change (e.g. the proven 2-byte MGA/version edit) → proves re-flashing stock recovers.
+   **DONE 2026-11-15:** built a 2-byte version bump 1008.3 -> 1009.0 with `mfw.novatek.restamp` (checksum recomputed
+   to `[C143]`), flashed it from USB; the OSD shows `M-C5500GGZA-1009.0`, a version Samsung never shipped. This proves
+   our patched images are accepted end to end. Recovery = re-flash the official 1008.3, same route.
 3. Only then, **code patches** (real input report, event ring, memory read), one feature at a time, re-flashing
    stock between failures.
 
