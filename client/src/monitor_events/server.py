@@ -316,13 +316,25 @@ def make_handler(mon: Monitor, port: int):
     return H
 
 
+class _LoopbackServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def server_bind(self):
+        # HTTPServer.server_bind calls socket.getfqdn(), a reverse DNS lookup that can hang for ~30 s on macOS.
+        import socketserver
+
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name, self.server_port = str(host), port
+
+
 def make_server(log: EventLog, host: str = "127.0.0.1", port: int = 8765, poll: bool = True):
     if host not in ("127.0.0.1", "localhost", "::1"):
         raise ValueError("the API only listens on loopback (see ADR-0013)")
     mon = Monitor(log)
     if poll:
         threading.Thread(target=mon.poll_loop, daemon=True).start()
-    srv = ThreadingHTTPServer((host, port), make_handler(mon, port))
+    srv = _LoopbackServer((host, port), make_handler(mon, port))
     return srv, mon
 
 
