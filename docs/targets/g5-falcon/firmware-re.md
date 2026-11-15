@@ -72,6 +72,38 @@ exact table extent.
 These memory primitives are also the building blocks for the eventual DDC→flash writer (the "flash over HDMI" goal),
 which targets the inactive A/B bank and validates before switching.
 
+### Dispatcher internals and the exact hook point (confirmed by disassembly)
+
+`sub_103DBC` reads the DDC packet to a stack buffer, then:
+
+```sparc
+; XOR checksum must be 0x6E (same convention as the LC34)
+and  %l0, 0xff, %o5 ; cmp %o5, 0x6e ; bne 0x1045d0   ; bad checksum -> drop
+ldub [%fp-0x2e], %l0                                 ; %l0 = opcode
+cmp %l0, 0xc2 / 0xcb / 0x03 / 0x07 / 0x01 ...         ; opcode compare chain
+; opcode 0x01 = Get VCP:
+ldub [%fp-0x2d], %o2                                 ; %o2 = VCP code
+... build reply header (0x6E 0x88 0x02 ...) on stack ...
+and  %o2, 0xff, %o0                                  ; %o0 = VCP code
+add  %fp, -0x60, %o1                                 ; %o1 = reply buffer (MH/ML/CH/CL at +0x?）
+0x103EBC: call 0x1882ac (DdcCmdGetVcp)               ; <-- HOOK SITE (Get)
+         mov %l3, %o2
+; opcode 0x03 = Set VCP dispatches at 0x1040e8 -> DddCmdSetVcp (0x1869BC)
+```
+
+**Hook plan (LC34-style), confirmed feasible:**
+
+| What | Where |
+|---|---|
+| Get hook site | redirect `call` at VA `0x103EBC` (file `0x131EBC`) → our Get hook; `%o0`=code, `%o1`=reply buf |
+| Set hook site | the opcode-0x03 path near VA `0x1040E8` → our Set hook; intercept before `DddCmdSetVcp` |
+| Hook code | reclaimed dead code (PDIC stub at VA `0x1E45D4`+) |
+| New VCP codes | pick free codes (LC34 used `0xF0` addr-hi, `0xF1` addr-lo, `0xF2` read4, `0xF4` write1); unsupported stock codes fall through to `DdcCmdGetVcp`, so interception adds them cleanly |
+| Scratch state | a few RAM/settings bytes to hold the current address (LC34 used its RAM block) — to be located |
+
+The hook routine: if `%o0`/code == our read code, read 4 bytes at the current address and store to `[%o1..+3]`, return 1
+(supported); else branch to the real `DdcCmdGetVcp` (`0x1882AC`). Set side mirrors it for address/write.
+
 ## Code-cave strategy (confirmed: the code is packed)
 
 The SPARC code region (file `0x12E000..0x21DCE0`) has **no zero/nop padding runs ≥ 64 bytes** — unlike the LC34's
