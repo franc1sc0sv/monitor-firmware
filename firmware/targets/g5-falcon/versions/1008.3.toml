@@ -1,0 +1,19 @@
+# Samsung Odyssey G5 (S32CG552EN / LS32CG552ENXZA), firmware M-C5500GGZA-1008.3.
+# Novatek NVTSC_IMG package. Hashes and offsets only; the vendor image stays local (data/vendor/g5/, gitignored).
+[version]
+model = "S32CG552EN"
+version = "1008.3"
+source = "Samsung support (Latin, LS32CG552ENXZA): M-C5500GGZA.zip, file M-C5500GGZA-1008.3[C145].img"
+image_size = 3449760
+image_sha256 = "a03692a23cc882857d28516adc29e8cd2cca78e6b5b6a2c98b8caf0c16a72bd1"
+sum16 = "C145"                         # whole-file 16-bit byte-sum (matches the [C145] filename tag)
+
+[embedded]
+# Single occurrence of the "M-C5500GGZA-NNNN.N" id; mfw.novatek.restamp() rewrites the NNNN.N digits here.
+family_offset = 0x273358               # "M-C5500GGZA-1008.3"
+version_digits_offset = 0x273364       # start of "1008.3"
+
+[sites]
+# Known patch sites (file offsets). MGA byte corroborated locally: 0x00 here, "Picture" category string adjacent,
+# matching the sibling NT68552 RE (github:c8dhjp4tyv-bit/odyssey-g5-firmware-research, for 1010.0). Confidence: inferred.
+mga_supported = { at = 0x2D2776, stock = 0x00, note = "00->01 reveals the hidden MGA factory-calibration menu (data-only)" }
