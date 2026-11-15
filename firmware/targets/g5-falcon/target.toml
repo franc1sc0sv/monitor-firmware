@@ -18,7 +18,8 @@ write_path = "usb-img-updater"          # Samsung M-C5500GGZA-*.img over a USB-A
 [firmware]
 # Family M-C5500GGZA-NNNN.N; strict embedded form; whole-file 16-bit byte-sum printed as [XXXX] in the filename.
 official_latest = "1008.3"              # Samsung support (LS32CG552ENXZA, Latin): M-C5500GGZA.zip, 2025-09-12
-installed = []                          # unit's running version still to be read from OSD (Support > Information)
+installed = ["1002.1"]                  # unit's running version (OSD Support > Information, 2026-11-15)
+flash_baseline = "1008.3"               # first flash = this official image (upgrade from 1002.1); patches build on it
 reference_re = "github:c8dhjp4tyv-bit/odyssey-g5-firmware-research"  # LS32CG552, M-C5500GGZA-1010.0 (external RE)
 
 [format]                               # confirmed against the official 1008.3 .img
