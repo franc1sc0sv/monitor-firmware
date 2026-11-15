@@ -44,13 +44,44 @@ See `docs/hardware/novatek-isp.md`. Two separate concerns, previously conflated:
 - **Runtime rich control (real input, events, memory) after patching.** Runs over HDMI/DP DDC/CI, like the LC34.
   "Unlocking HDMI communication" is therefore the *result* of a USB-flashed patch, not the flash transport.
 
-The DDC-only `FE`/`EF` vendor escape (ASUS sibling) remains unconfirmed on the Samsung build and only writes
-EEPROM/calibration/LUT via the live app; it is not a route to install a modified main image and is not on the plan.
+### Can we flash a patched *main* firmware purely over HDMI/DDC? No. (evidence-backed)
 
-### What already works today (read-only, standard DDC/CI)
+The deepest public NT68 RE is `schlarpc/asus-pg42uq-firmware-re` (ASUS PG42UQ, Novatek NT68552 — same family; that
+firmware literally carries an alternate caps string named **`FALCON`**, so its DDC architecture is a strong analogue
+for the Samsung build). It fully maps the DDC/CI handler. Findings (confirmed on the ASUS build; **inferred** for the
+G5 until checked against the G5 image):
 
-- **Real input source** readable over VCP `0x60` — this is one of the LC34's headline features, already available on
-  the G5 with no patch.
+- There **is** a hidden DDC vendor service escape: Set VCP `FE` with a sub-command byte (CRC-16/CCITT framed), and
+  `F1`. Sub-command `FE EF` is an **EEPROM/flash block read & write** (32-byte blocks, additive checksum), and
+  `FE E1 E6`/`E9` reads model/version strings.
+- **But `FE EF` writes only EEPROM/calibration/LUT regions (`0x400+`, `0x590`, `0x5A0+`, LUT banks), not the main
+  SPARC application partition.** There is no DDC sub-command that programs the main image. So the vendor escape can
+  read identity and poke calibration over HDMI, but it **cannot install a patched main firmware.**
+- `FE E1 A1` is a "firmware-update / forced-reboot entry" (persists settings, then spins forever). It may drop the
+  chip into an update mode, but what that mode then listens on (USB/bootROM vs DDC) is undocumented, it is a
+  write/dangerous command, and it can brick. **Not a confirmed HDMI flash path; not on the plan.**
+
+Conclusion: HDMI/DDC flashing of a patched image is **not available** on this platform (matches the clean I2C scan:
+no ISP slave). The write transport for a patched image is the **USB `.img` updater**.
+
+### Brick-safety: the platform uses A/B firmware slots (good news)
+
+The NT68552 sibling has **A/B recovery**: the active-slot tag (flash `0x7FFF == 0xAA`) is written **only after
+`--- Verify FW OK ---`**, so a failed/interrupted flash normally leaves the **previous slot bootable**. The G5's own
+RE mentions `CMD_START_ISP_ROMCODE_MODE_DUALFW`, consistent with dual-FW. If the G5 shares this (inferred, to be
+confirmed in its image), a bad USB flash should fall back to the working firmware — the main mitigation for having
+no SPI clip.
+
+### What already works today over HDMI/DP DDC, with NO flashing
+
+Beyond standard brightness/contrast, the NT68 DDC surface exposes (confirmed on the sibling; inferred for the G5):
+
+- **Real input source** (VCP `0x60`) — already confirmed on the G5. One of the LC34's headline features, no patch.
+- Hidden standard VCPs likely present: **power on/off (`D6`)**, OSD/key lock (`CA`), panel usage hours (`C0`),
+  sharpness (`87`), RGB black level, extra gammas/presets.
+- The `FE` vendor Get channel can read **model/version** and calibration without touching main flash.
+
+So a lot of "interaction" is reachable now by DDC alone; only the deep LC34 features below need a flashed patch.
 
 ### What LC34-level control would require (and why it is blocked)
 
@@ -80,6 +111,9 @@ stock image staged for recovery first.
 
 Blocking input needed from the user: the **exact model code** (rear label, `LS32CG5...`) and the **current firmware
 version** (OSD → Support/Information). These pick the correct stock `.img`; flashing the wrong variant can brick.
+
+Sources: `github.com/schlarpc/asus-pg42uq-firmware-re` (NT68552 DDC surface, anti-tamper, A/B slots — carries a
+`FALCON` caps string), `github.com/c8dhjp4tyv-bit/odyssey-g5-firmware-research` (G5 `LS32CG552`, USB `.img` updater).
 
 1. Obtain the matching stock `M-C5500GGZA-*.img` (Samsung support download) and store two copies under
    `data/vendor/g5/` (gitignored). Offline, no hardware.
