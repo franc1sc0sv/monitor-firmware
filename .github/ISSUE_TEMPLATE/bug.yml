@@ -1,0 +1,14 @@
+name: Client bug
+description: Problem with monitor-events (CLI, API, UI) or mfw
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach firmware, dumps or images. Redact serial numbers.
+  - type: textarea
+    id: what
+    attributes: {label: What happened, description: Command, output, expected result}
+    validations: {required: true}
+  - type: input
+    id: env
+    attributes: {label: Environment, description: "OS, GPU, cable (HDMI/DP), monitor model, patch version"}

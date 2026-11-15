@@ -1,3 +1,8 @@
+> **Research journal (historical).** Dated notes kept as evidence, including wrong turns. Sections before
+> "Load address correction" use the superseded base 0x200000: add 0x3800 to those addresses. Current truth lives in
+> `overview.md`, `settings-map.md` and `firmware/targets/lc34g55t/versions/1006.0.toml`. Where this journal says the
+> switch fails after 5 s, the released v2.2+ uses 8 s.
+
 # LC34G55T firmware reverse-engineering notes
 
 Status legend: **confirmed** = verified against bytes, hardware or matching checksums; *inferred* = from decompiler output, not yet checked in disassembly or on hardware.

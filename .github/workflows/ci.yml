@@ -1,0 +1,64 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run pyright
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync
+      - run: uv run pytest -q
+
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No binaries, large files or vendor data
+        run: |
+          set -e
+          bad=$(git ls-files | grep -Ei '\.(bin|img|gpr|rep)$|^data/|^out/' || true)
+          [ -z "$bad" ] || { echo "forbidden files: $bad"; exit 1; }
+          big=$(git ls-files -z | xargs -0 du -k | awk '$1 > 200 {print $2}')
+          [ -z "$big" ] || { echo "files over 200 KB: $big"; exit 1; }
+      - uses: astral-sh/setup-uv@v6
+      - name: Golden listings
+        run: |
+          uv sync
+          for l in firmware/targets/*/listings/*/*.lst; do uv run mfw check-listing "$l"; done
+
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PSScriptAnalyzer (errors only)
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $r = Invoke-ScriptAnalyzer -Path tools/windows -Recurse -Severity Error -ExcludeRule PSAvoidUsingCmdletAliases
+          $r | Format-Table -AutoSize
+          if ($r) { exit 1 }

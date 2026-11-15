@@ -1,0 +1,18 @@
+name: Hardware report
+description: Result of building/flashing on a monitor (success or failure)
+labels: [hardware]
+body:
+  - type: markdown
+    attributes:
+      value: Never attach dumps or images. `mfw identify` output and hashes are enough.
+  - type: input
+    id: model
+    attributes: {label: Monitor model and firmware version (mfw identify)}
+    validations: {required: true}
+  - type: input
+    id: setup
+    attributes: {label: GPU, OS, cable used for ISP}
+  - type: textarea
+    id: result
+    attributes: {label: What you did and what happened, description: Include HIL checklist results}
+    validations: {required: true}
