@@ -100,6 +100,9 @@ patch path). Residual risk: a patch that also disables the updater or corrupts b
 progress bar is not a reliable flash meter. Mitigation — staged flashing, never skip ahead:
 
 1. Flash **stock, unmodified** by USB → proves the path works on this unit, sets a known baseline.
+   **DONE 2026-11-15:** flashed official 1008.3 from USB (upgrade from 1002.1), confirmed in OSD and alive on DDC/CI.
+   Gotcha found: write the `.img` to the FAT32 stick with **native Windows**, not a WSL `/mnt` drvfs copy — the drvfs
+   write did not commit to the device, so the monitor reported "no update file" until the file was really present.
 2. Flash a minimal **data-only** change (e.g. the proven 2-byte MGA/version edit) → proves re-flashing stock recovers.
 3. Only then, **code patches** (real input report, event ring, memory read), one feature at a time, re-flashing
    stock between failures.

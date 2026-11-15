@@ -18,8 +18,11 @@ write_path = "usb-img-updater"          # Samsung M-C5500GGZA-*.img over a USB-A
 [firmware]
 # Family M-C5500GGZA-NNNN.N; strict embedded form; whole-file 16-bit byte-sum printed as [XXXX] in the filename.
 official_latest = "1008.3"              # Samsung support (LS32CG552ENXZA, Latin): M-C5500GGZA.zip, 2025-09-12
-installed = ["1002.1"]                  # unit's running version (OSD Support > Information, 2026-11-15)
-flash_baseline = "1008.3"               # first flash = this official image (upgrade from 1002.1); patches build on it
+installed = ["1008.3"]                  # running version; flashed from 1002.1 over USB and confirmed 2026-11-15
+flash_baseline = "1008.3"               # patches build on this; the unit is now on it
+# USB flash route VALIDATED on hardware 2026-11-15: stock 1008.3 flashed from USB, monitor booted and responds on
+# DDC/CI (input/brightness/contrast read back). FAT32 + single .img at the root of the one USB-A port; copy the file
+# with native Windows (a WSL /mnt drvfs write did not commit to the device and the monitor saw "no update file").
 reference_re = "github:c8dhjp4tyv-bit/odyssey-g5-firmware-research"  # LS32CG552, M-C5500GGZA-1010.0 (external RE)
 
 [format]                               # confirmed against the official 1008.3 .img
