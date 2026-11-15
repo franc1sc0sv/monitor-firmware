@@ -32,7 +32,16 @@ Located by their embedded debug-symbol strings and disassembled with capstone (S
 The symbol strings are at data VA `0x23B5E8` (GetVcp) / `0x23B5A0` (SetVcp); the DDC capability strings are at data
 VA `0x23B230`+ (file `0x268F30`+, four model variants, `model(LEMON23...)`).
 
-### Get VCP dispatch (the hook point)
+### DDC command dispatcher (the LC34-style hook point)
+
+`sub_103DBC` (VA `0x103DBC`, file `0x131DBC`, size `0x81C`) is the DDC/CI command dispatcher: it calls
+`DdcCmdGetVcp` (from `0x103EBC`) and `DddCmdSetVcp` (from `0x104148`/`0x104170`). It parses the packet and routes by
+opcode — the analogue of the sibling ASUS `FUN_00085d0c`. **Intercepting a chosen VCP code here** (before the normal
+Get/Set path) is the clean way to add memory read/write, exactly as the LC34 hook does, and sidesteps the sparse
+jump table below (which is sized to the stock supported codes, not a full 255-entry array, so new codes cannot be
+added by extending it).
+
+### Get VCP dispatch (the handler internals)
 
 `SecLibCommon_DdcCmdGetVcp(%i0 = vcp code, %i1 = 4-byte reply buffer MH/ML/CH/CL)` — same shape as the LC34 handler:
 
