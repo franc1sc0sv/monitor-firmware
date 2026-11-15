@@ -1,0 +1,20 @@
+# Samsung Odyssey G5 "FALCON" (32" 2560x1440 @ 165 Hz). Novatek NT68500 platform: 8051 (boot/STBC/USB) + SPARC V8
+# big-endian main app. Unlike the LC34G55T this is NOT an MStar target; the MStar ISP/patch tooling does not apply.
+# Write path is the USB `.img` updater (this unit has a USB-A port). See docs/targets/g5-falcon/overview.md.
+[target]
+model = "Odyssey G5 (FALCON)"          # OSD model name; exact code LS32CG5xx to be read from the rear label
+scaler = "Novatek NT68500 family"      # inferred from public G5 RE; not yet confirmed on this unit
+cpu = "8051 + SPARC V8 (big-endian)"   # inferred
+flash = "SPI NOR (Macronix/Winbond/SST/ISSI per boot JEDEC table); exact part unknown"  # inferred
+ddc_ci_address = 0x37                   # confirmed on hardware
+isp_i2c_address = false                 # no DDC ISP slave: scan ACKs only 0x30 0x37 0x3A 0x50 0x54 (confirmed)
+write_path = "usb-img-updater"          # Samsung M-C5500GGZA-*.img over a USB-A stick
+
+[ports]                                 # Samsung VCP 0x60 encoding (confirmed: 0x06 switches to HDMI)
+0 = { name = "DisplayPort", vcp60 = 0x09 }   # vcp60 inferred (Samsung encoding), not yet confirmed on G5
+1 = { name = "HDMI", vcp60 = 0x06 }          # confirmed
+
+[firmware]
+# Family M-C5500GGZA-NNNN.N; whole-file 16-bit byte-sum in the filename brackets, strict 18-char embedded form.
+installed = []                          # fill once the unit's version is read and a stock .img is verified
+reference_re = "github:c8dhjp4tyv-bit/odyssey-g5-firmware-research"  # LS32CG552, M-C5500GGZA-1010.0 (external RE)

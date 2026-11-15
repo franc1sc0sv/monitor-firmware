@@ -16,7 +16,7 @@ inside it. Plus a cross-OS client with a local HTTP API and a web UI.
 |---|---|---|---|
 | Samsung LC34G55T (MStar MST9U) | 1006.0 | v3.1, protocol 2 | Flashed and verified on hardware |
 | Samsung LC34G55T | 1012.1 | none | Addresses differ; not ported |
-| Samsung Odyssey G5 ("FALCON") | stock | none | Planned; needs a direct HDMI link for ISP |
+| Samsung Odyssey G5 ("FALCON") | stock | none | No MStar ISP on direct HDMI; likely Novatek (see roadmap) |
 
 | Client backend | State |
 |---|---|
