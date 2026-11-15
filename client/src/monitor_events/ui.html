@@ -93,7 +93,7 @@ button:disabled{opacity:.5;cursor:default}
 
   <section class="card wide">
     <h2>Internal settings · 0x204000–0x2043FF</h2>
-    <p class="hint">Yellow = changed since the page was opened (monitor buttons, DDC or the firmware itself). Outlined = named setting. Click a byte to write it; known menu items are applied automatically.</p>
+    <p class="hint">Yellow = changed since the page was opened (monitor buttons, DDC or the firmware itself). Outlined = named setting. Click a byte to write it; known menu items are applied automatically. Serial-number bytes are masked as 2a.</p>
     <div class="row"><button class="ghost" onclick="loadSettings()">Reload dump</button><span class="hint" id="gridInfo"></span></div>
     <div id="grid"></div>
   </section>
@@ -153,13 +153,13 @@ async function switchInput(t){
   const btn = $('in-'+t); btn.classList.add('pending');
   $('verdict').textContent = `Requesting ${t==='dp'?'DisplayPort':'HDMI'}… (waiting for the firmware verdict)`;
   try{ const r = await api('/api/input', {target:t});
-    $('verdict').innerHTML = `<span style="color:var(${r.ok?'--ok':'--bad'})">${r.ok?'✔':'✖'} ${r.text}</span> · ${r.elapsed_s} s`;
-  }catch(e){ $('verdict').innerHTML = `<span style="color:var(--bad)">✖ ${e.message}</span>`; }
+    { const v=$('verdict'); v.textContent=''; const sp=document.createElement('span'); sp.style.color=`var(${r.ok?'--ok':'--bad'})`; sp.textContent=`${r.ok?'✔':'✖'} ${r.text}`; v.appendChild(sp); v.append(` · ${r.elapsed_s} s`); }
+  }catch(e){ $('verdict').textContent = '✖ '+e.message; }
   btn.classList.remove('pending'); busy = false; refresh();
 }
 function addEvent(e, flash){
   const box=$('events'); const d=document.createElement('div');
-  d.className='ev k-'+e.name+(flash?' flash':''); d.innerHTML=`<span class="t">#${e.seq}</span><span class="t">${e.t.toFixed(2)}s</span><span>${e.text}</span>`;
+  d.className='ev k-'+e.name+(flash?' flash':''); for(const [cls,txt] of [['t','#'+e.seq],['t',e.t.toFixed(2)+'s'],['',e.text]]){ const sp=document.createElement('span'); if(cls) sp.className=cls; sp.textContent=txt; d.appendChild(sp); }
   const atBottom = box.scrollTop+box.clientHeight >= box.scrollHeight-20;
   box.appendChild(d); if(atBottom) box.scrollTop = box.scrollHeight;
   $('evcount').textContent = e.seq;

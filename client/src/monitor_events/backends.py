@@ -1,9 +1,11 @@
 """DDC/CI transports. Each display object exposes:
-    name: str
-    get_vcp_raw(code) -> (rc, mh, ml, ch, cl) or None when no valid reply
-    set_vcp(code, value) -> None
+name: str
+get_vcp_raw(code) -> (rc, mh, ml, ch, cl) or None when no valid reply
+set_vcp(code, value) -> None
 """
+
 from __future__ import annotations
+
 import sys
 import time
 
@@ -25,8 +27,11 @@ class _WinDisplay:
     def get_vcp_raw(self, code):
         import ctypes
         from ctypes import wintypes
+
         t, cur, mx = wintypes.DWORD(), wintypes.DWORD(), wintypes.DWORD()
-        if not self.dxva.GetVCPFeatureAndVCPFeatureReply(self.h, code, ctypes.byref(t), ctypes.byref(cur), ctypes.byref(mx)):
+        if not self.dxva.GetVCPFeatureAndVCPFeatureReply(
+            self.h, code, ctypes.byref(t), ctypes.byref(cur), ctypes.byref(mx)
+        ):
             return None
         return (0, (mx.value >> 8) & 0xFF, mx.value & 0xFF, (cur.value >> 8) & 0xFF, cur.value & 0xFF)
 
@@ -43,9 +48,22 @@ def _windows_displays():
     class PHYS(ctypes.Structure):
         _fields_ = [("h", wintypes.HANDLE), ("desc", wintypes.WCHAR * 128)]
 
-    user32, dxva = ctypes.windll.user32, ctypes.windll.dxva2
+    windll = ctypes.windll  # type: ignore[attr-defined]  # Windows-only module attribute
+    user32, dxva = windll.user32, windll.dxva2
+    dxva.GetNumberOfPhysicalMonitorsFromHMONITOR.argtypes = [wintypes.HMONITOR, ctypes.POINTER(wintypes.DWORD)]
+    dxva.GetPhysicalMonitorsFromHMONITOR.argtypes = [wintypes.HMONITOR, wintypes.DWORD, ctypes.POINTER(PHYS)]
+    dxva.GetVCPFeatureAndVCPFeatureReply.argtypes = [
+        wintypes.HANDLE,
+        wintypes.BYTE,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    dxva.SetVCPFeature.argtypes = [wintypes.HANDLE, wintypes.BYTE, wintypes.DWORD]
     out = []
-    MONENUM = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.c_void_p, wintypes.LPARAM)
+    MONENUM = ctypes.WINFUNCTYPE(  # type: ignore[attr-defined]
+        wintypes.BOOL, wintypes.HMONITOR, wintypes.HDC, ctypes.c_void_p, wintypes.LPARAM
+    )
 
     def cb(hmon, hdc, rc, lp):
         n = wintypes.DWORD()
@@ -70,6 +88,7 @@ class _LinuxDisplay:
     def _xfer(self, payload: bytes, read_len: int):
         import fcntl
         import os
+
         fd = os.open(self.path, os.O_RDWR)
         try:
             fcntl.ioctl(fd, self.I2C_SLAVE, 0x37)
@@ -96,12 +115,44 @@ class _LinuxDisplay:
         time.sleep(0.05)
 
 
-def _linux_displays():
+def _linux_display_buses() -> list[str]:
+    """Only I2C buses that belong to a display connector (DRM ddc links), never arbitrary SMBus/sensor buses."""
     import glob
-    out = []
-    for p in sorted(glob.glob("/dev/i2c-*")):
-        out.append(_LinuxDisplay(p))
-    return out
+    import os
+
+    buses = set()
+    for link in glob.glob("/sys/class/drm/card*-*/ddc") + glob.glob("/sys/class/drm/card*-*/i2c-*"):
+        target = os.path.realpath(link)
+        name = os.path.basename(target)
+        if name.startswith("i2c-"):
+            buses.add(f"/dev/{name}")
+        else:
+            buses.update(f"/dev/{os.path.basename(x)}" for x in glob.glob(os.path.join(target, "i2c-dev", "i2c-*")))
+    return sorted(b for b in buses if os.path.exists(b))
+
+
+def _has_edid(path: str) -> bool:
+    """Reads the 8-byte EDID header at 0x50 before any DDC/CI write, as ddcutil does."""
+    import fcntl
+    import os
+
+    try:
+        fd = os.open(path, os.O_RDWR)
+    except OSError:
+        return False
+    try:
+        fcntl.ioctl(fd, _LinuxDisplay.I2C_SLAVE, 0x50)
+        os.write(fd, b"\x00")
+        return os.read(fd, 8) == b"\x00\xff\xff\xff\xff\xff\xff\x00"
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def _linux_displays():
+    # Experimental: not yet tested on hardware. Needs read/write access to /dev/i2c-* (group i2c).
+    return [_LinuxDisplay(p) for p in _linux_display_buses() if _has_edid(p)]
 
 
 # ---------------------------------------------------------------- macOS (Apple Silicon): IOAVService I2C
@@ -112,6 +163,7 @@ class _MacDisplay:
 
     def _write(self, payload: bytes):
         import ctypes
+
         msg = bytes([0x80 | len(payload)]) + payload
         chk = 0x6E ^ 0x51
         for b in msg:
@@ -125,6 +177,7 @@ class _MacDisplay:
 
     def get_vcp_raw(self, code):
         import ctypes
+
         self._write(bytes([0x01, code]))
         time.sleep(0.05)
         buf = (ctypes.c_uint8 * 12)()
@@ -145,17 +198,35 @@ class _MacDisplay:
 def _mac_displays():
     import ctypes
     import ctypes.util
+
     iokit = ctypes.CDLL(ctypes.util.find_library("IOKit"))
     cf = ctypes.CDLL(ctypes.util.find_library("CoreFoundation"))
     iokit.IOServiceMatching.restype = ctypes.c_void_p
     iokit.IOServiceGetMatchingServices.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
     iokit.IOIteratorNext.restype = ctypes.c_uint32
     iokit.IORegistryEntryCreateCFProperty.restype = ctypes.c_void_p
-    iokit.IORegistryEntryCreateCFProperty.argtypes = [ctypes.c_uint32, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_uint32]
+    iokit.IORegistryEntryCreateCFProperty.argtypes = [
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+    ]
     iokit.IOAVServiceCreateWithService.restype = ctypes.c_void_p
     iokit.IOAVServiceCreateWithService.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-    iokit.IOAVServiceWriteI2C.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
-    iokit.IOAVServiceReadI2C.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
+    iokit.IOAVServiceWriteI2C.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+    ]
+    iokit.IOAVServiceReadI2C.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_uint32,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+    ]
     cf.CFStringCreateWithCString.restype = ctypes.c_void_p
     cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
     cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]

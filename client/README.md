@@ -4,34 +4,24 @@ Client, local API and web UI for the patched Samsung LC34G55T firmware (v3.1). I
 standard DDC/CI, so it needs no drivers: on Windows it uses the built-in dxva2 API, on Linux `/dev/i2c-*`, and on
 macOS (Apple Silicon) IOAVService. Linux and macOS are written but not yet tested.
 
+Part of the monitor-firmware repo; see the root README and `docs/protocol/`.
+
 ## Run
 
 ```
-uv run monitor-events serve          # API + UI on http://127.0.0.1:8765/
+uv run monitor-events serve          # API + UI on http://127.0.0.1:8765/ (loopback only)
+uv run monitor-events --simulate serve   # against the built-in FakeMonitor, no hardware
 uv run monitor-events status | history | watch --exec CMD | switch dp|hdmi
 uv run monitor-events vcp get 10 | vcp set 10 80 | inventory
-uv run monitor-events peek 4fe6b0 64 | poke 2041d3 80 | apply 0x0d | dump-settings
+uv run monitor-events peek 4fe6b0 64 | poke 2041d3 80 | apply 0x0d | dump-settings   # serial masked; --raw to show
 ```
 
 On Windows, double-click `start-monitor-ui.cmd`.
 
-## HTTP API (JSON, CORS open, localhost only by default)
+## HTTP API
 
-| Method | Path | Body / query | Returns |
-|---|---|---|---|
-| GET | `/api/status` | | input, signal, power, clock, event count, picture controls |
-| GET | `/api/events` | `?since=SEQ` | events after SEQ (default: last 64) |
-| GET | `/api/stream` | | Server-Sent Events, `event: monitor`, one JSON event per message |
-| POST | `/api/input` | `{"target":"dp"\|"hdmi"}` | waits for the firmware's verdict: `{"ok", "verdict", "text", "elapsed_s"}` |
-| GET | `/api/vcp/<hex>` | | `{"supported", "current", "max"}` |
-| POST | `/api/vcp/<hex>` | `{"value": n}` | written and read back |
-| GET | `/api/settings` | | 1 KB settings block 0x204000..0x2043ff as hex, plus known names |
-| GET | `/api/peek` | `?addr=hex&len=n` | RAM 0x200000..0x7fffff |
-| POST | `/api/poke` | `{"addr":"2041d3","value":80,"apply":13}` | writes a settings byte (0x204000..0x2043ff only), applies the menu item (auto when known) |
-| POST | `/api/apply` | `{"item": n}` | applies menu item 0..0x6e, as the OSD does |
-| GET | `/api/inventory` | | every known VCP code with current/max |
-
-Example from any language: `curl -X POST localhost:8765/api/input -d '{"target":"dp"}'`.
+See `docs/protocol/http-api.md`. Loopback only; Host and Origin are checked and POST bodies must be JSON, so web
+pages cannot drive the monitor.
 
 ## Event ids
 

@@ -8,27 +8,99 @@ VCP codes (manufacturer range):
   0xEE get: live state: MH=input port, ML=source select, CH=power flags, CL=signal present
   0xEF get: monitor clock, 32-bit, 10 ms units since boot
 """
+
 from __future__ import annotations
+
 import time
 from dataclasses import dataclass
 
 EVENT_NAMES = {
-    0x00: "boot", 0x01: "input-port", 0x02: "source-select", 0x03: "power-flags", 0x04: "powersave-flags",
-    0x05: "sync-flags", 0x06: "signal", 0x07: "system-state", 0x08: "window-port",
-    0x10: "ddc-switch-request", 0x11: "switch-done", 0x12: "switch-failed", 0x13: "ddc-power-request",
-    0x20: "setting-changed", 0x21: "setting-changed",
+    0x00: "boot",
+    0x01: "input-port",
+    0x02: "source-select",
+    0x03: "power-flags",
+    0x04: "powersave-flags",
+    0x05: "sync-flags",
+    0x06: "signal",
+    0x07: "system-state",
+    0x08: "window-port",
+    0x10: "ddc-switch-request",
+    0x11: "switch-done",
+    0x12: "switch-failed",
+    0x13: "ddc-power-request",
+    0x20: "setting-changed",
+    0x21: "setting-changed",
 }
 SETTINGS_BASE = 0x204000
+# Factory identity inside the settings block: model string at +0x89, serial number copies at +0x9a..+0xb9.
+# Masked by default in every output so dumps can be pasted into issues safely.
+SERIAL_MASK = range(0x9A, 0xBA)
+
+# One table for every known VCP code (name, readable value?). Used by the CLI, the server and the UI.
+VCP_CODES = {
+    0x10: "brightness",
+    0x12: "contrast",
+    0x14: "color preset",
+    0x16: "red gain",
+    0x18: "green gain",
+    0x1A: "blue gain",
+    0x20: "h-position",
+    0x30: "v-position",
+    0x52: "active control",
+    0x60: "input",
+    0x62: "volume",
+    0x87: "sharpness",
+    0x8D: "mute",
+    0xAA: "orientation",
+    0xAC: "h-frequency",
+    0xAE: "v-frequency",
+    0xB2: "subpixel layout",
+    0xB6: "panel type",
+    0xC6: "app enable key",
+    0xC8: "controller type",
+    0xC9: "firmware level",
+    0xCC: "OSD language",
+    0xD6: "power mode",
+    0xDB: "samsung DB",
+    0xDC: "picture mode",
+    0xDF: "VCP version",
+    0xE0: "samsung E0",
+    0xE7: "samsung E7",
+    0xF7: "energy mode (samsung F7)",
+    0xFD: "samsung FD",
+}
+# Codes whose Get does not return the value just written (action codes or values the firmware rewrites).
+NO_READBACK = {0x04, 0x05, 0x08, 0x60, 0xD6, 0xF7}
+
+
+def mask_serial(addr: int, data: bytes, raw: bool = False) -> bytes:
+    """Replaces the serial-number bytes with 0x2A ('*') when [addr, addr+len) overlaps them."""
+    if raw:
+        return data
+    out = bytearray(data)
+    for i in range(len(out)):
+        if (addr + i - SETTINGS_BASE) in SERIAL_MASK:
+            out[i] = 0x2A
+    return bytes(out)
+
+
 # Settings offsets identified so far (offset from 0x204000). Extended as more are mapped.
 SETTING_NAMES = {
-    0xd7: "power/ddc flags (bit0 power on, bit6 DDC/CI enabled)", 0xde: "source select", 0xe4: "current window",
-    0xe5: "window 0 input port",
-    0x1d3: "brightness (menu item 0x0d)", 0x1d6: "samsung VCP F7 (item 0x31)", 0x1d7: "red gain (item 0x11)",
-    0x1d8: "green gain (item 0x12)", 0x1d9: "blue gain (item 0x13)", 0x1da: "contrast (item 0x0e)",
-    0x1df: "sharpness (item 0x0f)", 0x1e0: "samsung VCP F3 (item 0x04)",
+    0xD7: "power/ddc flags (bit0 power on, bit6 DDC/CI enabled)",
+    0xDE: "source select",
+    0xE4: "current window",
+    0xE5: "window 0 input port",
+    0x1D3: "brightness (menu item 0x0d)",
+    0x1D6: "samsung VCP F7 (item 0x31)",
+    0x1D7: "red gain (item 0x11)",
+    0x1D8: "green gain (item 0x12)",
+    0x1D9: "blue gain (item 0x13)",
+    0x1DA: "contrast (item 0x0e)",
+    0x1DF: "sharpness (item 0x0f)",
+    0x1E0: "samsung VCP F3 (item 0x04)",
 }
 # menu item to apply after poking a setting (FullAccess.apply)
-SETTING_ITEMS = {0x1d3: 0x0d, 0x1d6: 0x31, 0x1d7: 0x11, 0x1d8: 0x12, 0x1d9: 0x13, 0x1da: 0x0e, 0x1df: 0x0f, 0x1e0: 0x04}
+SETTING_ITEMS = {0x1D3: 0x0D, 0x1D6: 0x31, 0x1D7: 0x11, 0x1D8: 0x12, 0x1D9: 0x13, 0x1DA: 0x0E, 0x1DF: 0x0F, 0x1E0: 0x04}
 PORT_NAMES = {0: "DisplayPort", 1: "HDMI", 2: "port2"}
 VCP_TO_PORT = {0x09: 0, 0x06: 1}
 PORT_TO_VCP = {v: k for k, v in VCP_TO_PORT.items()}
@@ -52,7 +124,9 @@ class Event:
 
     def describe(self) -> str:
         if self.id in (0x01,):
-            return f"input changed {PORT_NAMES.get(self.old, hex(self.old))} to {PORT_NAMES.get(self.new, hex(self.new))}"
+            return (
+                f"input changed {PORT_NAMES.get(self.old, hex(self.old))} to {PORT_NAMES.get(self.new, hex(self.new))}"
+            )
         if self.id == 0x06:
             return "signal " + ("present" if self.new else "lost")
         if self.id == 0x10:
@@ -67,7 +141,7 @@ class Event:
             return "monitor booted (event log started)"
         if self.id in (0x20, 0x21):
             off = ((self.id & 1) << 8) | self.old
-            return f"setting 0x{SETTINGS_BASE + off:06x} ({SETTING_NAMES.get(off, 'offset 0x%03x' % off)}) = {self.new} (0x{self.new:02x})"
+            return f"setting 0x{SETTINGS_BASE + off:06x} ({SETTING_NAMES.get(off, f'offset 0x{off:03x}')}) = {self.new} (0x{self.new:02x})"
         return f"{self.name} 0x{self.old:02x} to 0x{self.new:02x}"
 
 
@@ -116,6 +190,27 @@ class EventLog:
             self._rotate()
             time.sleep(0.03)
         raise ProtocolError(f"no valid reply to VCP 0x{code:02x}" + (f": {last}" if last else ""))
+
+    def get_vcp(self, code: int):
+        """Public: (rc, mh, ml, ch, cl) for any VCP code, with retries and path failover."""
+        return self._get(code)
+
+    def set_vcp(self, code: int, value: int, confirm: bool = True) -> dict:
+        """Public: write a VCP code; when the code is readable, read back until it sticks."""
+        for attempt in range(1, 6):
+            self._set(code, value)
+            if not confirm or code in NO_READBACK:
+                return {"code": code, "attempts": attempt, "confirmed": False}
+            time.sleep(0.12)
+            try:
+                rc, mh, ml, ch, cl = self._get(code)
+            except ProtocolError:
+                continue
+            if rc != 0:
+                return {"code": code, "attempts": attempt, "confirmed": False, "supported": False}
+            if (ch << 8) | cl == value:
+                return {"code": code, "attempts": attempt, "confirmed": True, "current": value, "max": (mh << 8) | ml}
+        raise ProtocolError(f"VCP 0x{code:02x} = {value} not confirmed after 5 attempts")
 
     def _set(self, code: int, value: int):
         for _ in range(self.retries * len(self.paths)):
@@ -221,7 +316,8 @@ class FullAccess:
         self.log._set(0xF1, addr & 0xFFFF)
 
     def _read_addr(self) -> int:
-        hi = self.log._get(0xF0); lo = self.log._get(0xF1)
+        hi = self.log._get(0xF0)
+        lo = self.log._get(0xF1)
         return (hi[3] << 24) | (hi[4] << 16) | (lo[3] << 8) | lo[4]
 
     def peek(self, addr: int, length: int, block: int = 64) -> bytes:
@@ -245,7 +341,7 @@ class FullAccess:
                 raise ProtocolError(f"peek failed at 0x{a:06x}")
             out += chunk
             a += n
-        return bytes(out[addr - a0: addr - a0 + length])
+        return bytes(out[addr - a0 : addr - a0 + length])
 
     def poke(self, addr: int, value: int):
         if not (0x204000 <= addr < 0x204400):
@@ -262,5 +358,8 @@ class FullAccess:
             raise ValueError("menu item 0..0x6e")
         self.log._set(0xF6, item)
 
-    def settings(self) -> bytes:
-        return self.peek(SETTINGS_BASE, 0x400)
+    def settings(self, raw: bool = False) -> bytes:
+        return mask_serial(SETTINGS_BASE, self.peek(SETTINGS_BASE, 0x400), raw)
+
+    def peek_masked(self, addr: int, length: int, raw: bool = False) -> bytes:
+        return mask_serial(addr, self.peek(addr, length), raw)

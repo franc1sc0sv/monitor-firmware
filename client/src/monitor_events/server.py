@@ -1,173 +1,217 @@
-"""Local HTTP API + web UI for the patched monitor.
+"""Local HTTP API + web UI for the patched monitor. See docs/protocol/http-api.md.
+
+Security model (ADR-0013): the server binds to localhost and only answers requests whose Host header is the
+loopback address it listens on, rejects cross-site Origins, and requires `Content-Type: application/json` on POST,
+so a web page the user happens to visit cannot drive the monitor (no CORS, no DNS rebinding, no simple-form CSRF).
 
 Every DDC transaction goes through one lock, so the UI, the event poller and API callers never interleave on the bus.
-
-Endpoints (JSON):
-  GET  /api/status                 live state, firmware info, picture controls
-  GET  /api/events?since=SEQ       events after SEQ (default: last 64)
-  GET  /api/stream                 Server-Sent Events: one "event" message per monitor event
-  POST /api/input   {"target": "dp"|"hdmi"}           switch and wait for the firmware's verdict
-  GET  /api/vcp/<hex>              read any VCP code
-  POST /api/vcp/<hex> {"value": n}                     write any VCP code (read back when readable)
-  GET  /api/settings               1 KB settings block (0x204000..0x2043ff) as hex + known names
-  GET  /api/peek?addr=hex&len=n    read RAM (0x200000..0x7fffff)
-  POST /api/poke  {"addr": hex, "value": n, "apply": item|null}   write a settings byte, optionally apply menu item
-  POST /api/apply {"item": n}      apply menu item (0..0x6e)
-  GET  /api/inventory              all known VCP codes with current/max
 """
+
 from __future__ import annotations
 
 import json
 import queue
 import threading
 import time
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from urllib.parse import parse_qs, urlparse
 
-from .protocol import (EVENT_NAMES, PORT_NAMES, SETTING_ITEMS, SETTING_NAMES, EventLog, FullAccess,
-                       ProtocolError)
+from .protocol import (
+    EVENT_NAMES,
+    PORT_NAMES,
+    SETTING_ITEMS,
+    SETTING_NAMES,
+    VCP_CODES,
+    EventLog,
+    FullAccess,
+    ProtocolError,
+)
 
-PICTURE = {  # code: (name, item for apply, settings offset)
-    0x10: ("brightness", 0x0d, 0x1d3), 0x12: ("contrast", 0x0e, 0x1da), 0x87: ("sharpness", 0x0f, 0x1df),
-    0x16: ("red", 0x11, 0x1d7), 0x18: ("green", 0x12, 0x1d8), 0x1A: ("blue", 0x13, 0x1d9),
-    0x14: ("color_preset", 0x14, None), 0xF7: ("energy_mode_f7", 0x31, 0x1d6),
+PICTURE = {  # VCP code -> UI name
+    0x10: "brightness",
+    0x12: "contrast",
+    0x87: "sharpness",
+    0x16: "red",
+    0x18: "green",
+    0x1A: "blue",
+    0x14: "color_preset",
+    0xF7: "energy_mode_f7",
 }
-INVENTORY = {0x10: "brightness", 0x12: "contrast", 0x14: "color preset", 0x16: "red gain", 0x18: "green gain",
-             0x1A: "blue gain", 0x20: "h-position", 0x30: "v-position", 0x60: "input", 0x87: "sharpness",
-             0xAA: "orientation", 0xB6: "panel type", 0xC6: "app enable key", 0xC8: "controller type",
-             0xC9: "firmware level", 0xCC: "OSD language", 0xD6: "power mode", 0xDC: "picture mode",
-             0xDF: "VCP version", 0xE0: "samsung E0", 0xF7: "samsung F7 (energy mode)"}
 
 
 class Monitor:
     def __init__(self, log: EventLog):
         self.log = log
         self.fa = FullAccess(log)
-        self.lock = threading.RLock()
-        self.events = []          # newest last
-        self.last_seq = None
+        self.lock = threading.RLock()  # serialises the DDC bus
+        self.state_lock = threading.Lock()  # protects events/subscribers
+        self.events: deque[dict] = deque(maxlen=500)
+        self.last_seq: int | None = None
         self.subscribers: list[queue.Queue] = []
 
-    # ---- DDC helpers (all under the lock)
-    def get(self, code):
+    def get(self, code: int) -> dict:
         with self.lock:
-            rc, mh, ml, ch, cl = self.log._get(code)
-        return {"code": code, "supported": rc == 0, "max": (mh << 8) | ml, "current": (ch << 8) | cl}
+            rc, mh, ml, ch, cl = self.log.get_vcp(code)
+        return {
+            "code": code,
+            "name": VCP_CODES.get(code),
+            "supported": rc == 0,
+            "max": (mh << 8) | ml,
+            "current": (ch << 8) | cl,
+        }
 
-    def set(self, code, value):
+    def set(self, code: int, value: int) -> dict:
         with self.lock:
-            for attempt in range(1, 6):
-                self.log._set(code, value)
-                time.sleep(0.12)
-                try:
-                    r = self.get(code)
-                except ProtocolError:
-                    continue
-                if not r["supported"] or r["current"] == value or code in (0x60, 0xD6, 0x04, 0x05, 0x08, 0xF7):
-                    r["attempts"] = attempt
-                    return r
-        raise ProtocolError(f"VCP 0x{code:02x} = {value} not confirmed")
+            r = self.log.set_vcp(code, value)
+        r["name"] = VCP_CODES.get(code)
+        return r
 
-    def status(self):
+    def status(self) -> dict:
         with self.lock:
             st = self.log.live()
             info = self.log.info()
             pic = {}
-            for code, (name, _, _) in PICTURE.items():
+            for code, name in PICTURE.items():
                 try:
                     pic[name] = self.get(code)
                 except ProtocolError:
                     pic[name] = None
-        return {"input": PORT_NAMES.get(st.port, st.port), "input_port": st.port, "power_on": st.power_on,
-                "power_flags": st.power_flags, "signal": bool(st.signal), "source_select": st.source_select,
-                "clock_s": st.clock_10ms / 100, "events": info["seq"], "ring": info["ring"],
-                "protocol": info["version"], "paths": len(self.log.paths), "picture": pic}
+        return {
+            "input": PORT_NAMES.get(st.port, st.port),
+            "input_port": st.port,
+            "power_on": st.power_on,
+            "power_flags": st.power_flags,
+            "signal": bool(st.signal),
+            "source_select": st.source_select,
+            "clock_s": st.clock_10ms / 100,
+            "events": info["seq"],
+            "ring": info["ring"],
+            "protocol": info["version"],
+            "paths": len(self.log.paths),
+            "picture": pic,
+        }
 
-    # ---- events
-    def _ev_json(self, e):
-        return {"seq": e.seq, "id": e.id, "name": e.name, "old": e.old, "new": e.new, "t": e.seconds,
-                "text": e.describe()}
+    @staticmethod
+    def _ev_json(e) -> dict:
+        return {
+            "seq": e.seq,
+            "id": e.id,
+            "name": e.name,
+            "old": e.old,
+            "new": e.new,
+            "t": e.seconds,
+            "text": e.describe(),
+        }
 
-    def poll_loop(self):
+    def events_since(self, since: int) -> list[dict]:
+        with self.state_lock:
+            evs = list(self.events)
+        if since < 0:
+            return evs
+        return [e for e in evs if 0 < ((e["seq"] - since) & 0xFFFF) < 0x8000]
+
+    def subscribe(self) -> queue.Queue:
+        q: queue.Queue = queue.Queue()
+        with self.state_lock:
+            self.subscribers.append(q)
+        return q
+
+    def unsubscribe(self, q: queue.Queue):
+        with self.state_lock:
+            if q in self.subscribers:
+                self.subscribers.remove(q)
+
+    def poll_loop(self, interval: float = 0.3):
         while True:
             try:
+                new = []
                 with self.lock:
                     seq = self.log.info()["seq"]
                     if self.last_seq is None:
-                        hist = self.log.history(64)
-                        self.events = [self._ev_json(e) for e in hist]
+                        hist = [self._ev_json(e) for e in self.log.history(64)]
+                        with self.state_lock:
+                            self.events.extend(hist)
                         self.last_seq = seq
-                    new = []
-                    while self.last_seq != seq:
-                        nxt = (self.last_seq + 1) & 0xFFFF
-                        new.append(self._ev_json(self.log.event(nxt)))
-                        self.last_seq = nxt
+                    cur: int = self.last_seq if self.last_seq is not None else seq
+                    while cur != seq:
+                        cur = (cur + 1) & 0xFFFF
+                        new.append(self._ev_json(self.log.event(cur)))
+                        self.last_seq = cur
+                with self.state_lock:
+                    self.events.extend(new)
+                    subs = list(self.subscribers)
                 for e in new:
-                    self.events.append(e)
-                    for q in list(self.subscribers):
+                    for q in subs:
                         q.put(e)
-                self.events = self.events[-500:]
             except ProtocolError:
                 pass
             except Exception as ex:  # keep the poller alive no matter what
-                print("poller error:", ex)
-            time.sleep(0.3)
+                print("poller error:", ex, flush=True)
+            time.sleep(interval)
 
 
 def _ui_html() -> bytes:
     return resources.files("monitor_events").joinpath("ui.html").read_bytes()
 
 
-def make_handler(mon: Monitor):
+def make_handler(mon: Monitor, port: int):
+    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    allowed_origins = {f"http://{h}" for h in allowed_hosts}
+
     class H(BaseHTTPRequestHandler):
         def log_message(self, format, *args):  # noqa: A002 - silence per-request logging
             pass
 
-        def _json(self, obj, code=200):
-            body = json.dumps(obj).encode()
+        def _send(self, code: int, body: bytes, ctype: str):
             self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
-        def _body(self):
+        def _json(self, obj, code=200):
+            self._send(code, json.dumps(obj).encode(), "application/json")
+
+        def _allowed(self, post: bool) -> bool:
+            if self.headers.get("Host") not in allowed_hosts:
+                self._json({"error": "forbidden host"}, 403)
+                return False
+            origin = self.headers.get("Origin")
+            if origin is not None and origin not in allowed_origins:
+                self._json({"error": "forbidden origin"}, 403)
+                return False
+            if post and not (self.headers.get("Content-Type") or "").startswith("application/json"):
+                self._json({"error": "Content-Type must be application/json"}, 415)
+                return False
+            return True
+
+        def _body(self) -> dict:
             n = int(self.headers.get("Content-Length") or 0)
             return json.loads(self.rfile.read(n) or b"{}")
 
-        def do_OPTIONS(self):
-            self.send_response(204)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
-            self.end_headers()
-
         def do_GET(self):
+            if not self._allowed(post=False):
+                return
             u = urlparse(self.path)
             q = {k: v[0] for k, v in parse_qs(u.query).items()}
+            raw = q.get("raw") == "1"
             try:
                 if u.path in ("/", "/index.html"):
-                    body = _ui_html()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "text/html; charset=utf-8")
-                    self.send_header("Content-Length", str(len(body)))
-                    self.end_headers()
-                    self.wfile.write(body)
+                    self._send(200, _ui_html(), "text/html; charset=utf-8")
                 elif u.path == "/api/status":
                     self._json(mon.status())
                 elif u.path == "/api/events":
-                    since = int(q.get("since", -1))
-                    self._json([e for e in mon.events if since < 0 or ((e["seq"] - since) & 0xFFFF) < 0x8000 and e["seq"] != since])
+                    self._json(mon.events_since(int(q.get("since", -1))))
                 elif u.path == "/api/stream":
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
                     self.send_header("Cache-Control", "no-cache")
-                    self.send_header("Access-Control-Allow-Origin", "*")
                     self.end_headers()
-                    sub = queue.Queue()
-                    mon.subscribers.append(sub)
+                    sub = mon.subscribe()
                     try:
                         while True:
                             try:
@@ -179,22 +223,28 @@ def make_handler(mon: Monitor):
                     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                         pass
                     finally:
-                        mon.subscribers.remove(sub)
+                        mon.unsubscribe(sub)
                 elif u.path.startswith("/api/vcp/"):
                     self._json(mon.get(int(u.path.rsplit("/", 1)[1], 16)))
                 elif u.path == "/api/settings":
                     with mon.lock:
-                        data = mon.fa.settings()
-                    self._json({"base": 0x204000, "hex": data.hex(),
-                                "names": {f"{k:x}": v for k, v in SETTING_NAMES.items()},
-                                "items": {f"{k:x}": v for k, v in SETTING_ITEMS.items()}})
+                        data = mon.fa.settings(raw=raw)
+                    self._json(
+                        {
+                            "base": 0x204000,
+                            "hex": data.hex(),
+                            "serial_masked": not raw,
+                            "names": {f"{k:x}": v for k, v in SETTING_NAMES.items()},
+                            "items": {f"{k:x}": v for k, v in SETTING_ITEMS.items()},
+                        }
+                    )
                 elif u.path == "/api/peek":
                     with mon.lock:
-                        data = mon.fa.peek(int(q["addr"], 16), int(q.get("len", "16"), 0))
+                        data = mon.fa.peek_masked(int(q["addr"], 16), int(q.get("len", "16"), 0), raw=raw)
                     self._json({"addr": q["addr"], "hex": data.hex()})
                 elif u.path == "/api/inventory":
                     out = []
-                    for code, name in INVENTORY.items():
+                    for code, name in VCP_CODES.items():
                         try:
                             r = mon.get(code)
                         except ProtocolError:
@@ -203,16 +253,24 @@ def make_handler(mon: Monitor):
                         out.append(r)
                     self._json(out)
                 elif u.path == "/api/meta":
-                    self._json({"events": {f"{k:x}": v for k, v in EVENT_NAMES.items()},
-                                "picture": {f"{k:x}": v[0] for k, v in PICTURE.items()}})
+                    self._json(
+                        {
+                            "events": {f"{k:x}": v for k, v in EVENT_NAMES.items()},
+                            "vcp": {f"{k:x}": v for k, v in VCP_CODES.items()},
+                        }
+                    )
                 else:
                     self._json({"error": "not found"}, 404)
             except ProtocolError as ex:
                 self._json({"error": str(ex)}, 503)
+            except (KeyError, ValueError) as ex:
+                self._json({"error": f"bad request: {ex}"}, 400)
             except Exception as ex:
                 self._json({"error": f"{type(ex).__name__}: {ex}"}, 500)
 
         def do_POST(self):
+            if not self._allowed(post=True):
+                return
             u = urlparse(self.path)
             try:
                 b = self._body()
@@ -221,8 +279,15 @@ def make_handler(mon: Monitor):
                     t0 = time.time()
                     with mon.lock:
                         e = mon.log.switch_input(port)
-                    self._json({"ok": e.id == 0x11, "verdict": e.name, "text": e.describe(),
-                                "elapsed_s": round(time.time() - t0, 2), "event": mon._ev_json(e)})
+                    self._json(
+                        {
+                            "ok": e.id == 0x11,
+                            "verdict": e.name,
+                            "text": e.describe(),
+                            "elapsed_s": round(time.time() - t0, 2),
+                            "event": mon._ev_json(e),
+                        }
+                    )
                 elif u.path.startswith("/api/vcp/"):
                     self._json(mon.set(int(u.path.rsplit("/", 1)[1], 16), int(b["value"])))
                 elif u.path == "/api/poke":
@@ -243,7 +308,7 @@ def make_handler(mon: Monitor):
                     self._json({"error": "not found"}, 404)
             except ProtocolError as ex:
                 self._json({"error": str(ex)}, 503)
-            except (KeyError, ValueError) as ex:
+            except (KeyError, ValueError, json.JSONDecodeError) as ex:
                 self._json({"error": f"bad request: {ex}"}, 400)
             except Exception as ex:
                 self._json({"error": f"{type(ex).__name__}: {ex}"}, 500)
@@ -251,9 +316,17 @@ def make_handler(mon: Monitor):
     return H
 
 
-def serve(log: EventLog, host: str = "127.0.0.1", port: int = 8765):
+def make_server(log: EventLog, host: str = "127.0.0.1", port: int = 8765, poll: bool = True):
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        raise ValueError("the API only listens on loopback (see ADR-0013)")
     mon = Monitor(log)
-    threading.Thread(target=mon.poll_loop, daemon=True).start()
-    srv = ThreadingHTTPServer((host, port), make_handler(mon))
+    if poll:
+        threading.Thread(target=mon.poll_loop, daemon=True).start()
+    srv = ThreadingHTTPServer((host, port), make_handler(mon, port))
+    return srv, mon
+
+
+def serve(log: EventLog, host: str = "127.0.0.1", port: int = 8765):
+    srv, _ = make_server(log, host, port)
     print(f"monitor API + UI on http://{host}:{port}/  ({len(log.paths)} path(s) to the monitor)", flush=True)
     srv.serve_forever()
