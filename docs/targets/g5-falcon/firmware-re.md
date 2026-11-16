@@ -763,3 +763,17 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
 - Remaining hypotheses: the 8051 read loop never completes (engine/arbiter) and the chip watchdog fires; or the
   reset is a deliberate reaction to the FE2P-load reply. Next: compare with the firmware's boot-time LoadFE2P call
   site (caller 0x169168) and decode what the 8051 does after the read (0xC912 / 0xF629 / 0xE220 / 0x2BBC).
+
+### ROOT CAUSE of the resets + full flash READ over DDC (hardware-confirmed 2026-11-16)
+- Every 8051 flash routine (read 0x8145, program 0x77C9, erase 0x9766) brackets the SPI work with 0xF6B3/0xF6C9:
+  if chip-variant reg **D511 == 0x1A** (read-only ID; it is 0x1A here) they clear and then **set bit 0 of XDATA
+  F1A8**. F1A8 is 0x02 at runtime and **writing F1A8 bit0 = 1 resets the whole chip** (POKE F1A8=0x01/0x03 ->
+  reset; F1A8=0x00 harmless). So each 8051 flash op completes its SPI work and then resets the chip. The firmware
+  presumably only writes the flash in states where that is acceptable (power-off/update).
+- **The SPARC code window is a direct XIP view of the 8 MB SPI flash**: flash address F reads at VA
+  `(F - 0x108000) mod 0x800000` (mirrored every 8 MB). Verified: flash 0x0000 = 0213608B (boot); VA 0x245664 (bank A
+  version) = "1021.2", VA 0x645664 (bank B) = "1021.1". Boot sector read: tag byte flash 0x7FFF = **0x00** (region
+  A active), descriptor A @0x6000 = 0x010000/0xFAA7, 0x020000/0xC16B, 0x0D0000/0x775C, 0x0FC000/0x2858,
+  0x108000/0x2EB9AC; **descriptor B @0x7000 = the same +0x400000** (bank B confirmed at +4 MB).
+- Flasher shape that follows: write with the stock 8051 erase/program (one op per reset), verify by reading the XIP
+  window, activate by rewriting sector 0x7000 (descriptor B + tag 0xAA at 0x7FFF) last.
