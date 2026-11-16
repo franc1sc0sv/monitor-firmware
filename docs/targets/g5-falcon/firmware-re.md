@@ -214,3 +214,12 @@ Most of the SPI flash *program* path is in the 8051 USB updater (record 2); the 
 Next: disassemble `SYSAPI_EraseUSRFlashType2` and trace the program/page-write routine it pairs with, and the A/B
 bank layout, to build a DDC command that streams an image to the inactive bank (via these routines) + a verify
 (checksum read-back over DDC), then a separate activate command. High risk — staged and validated before any switch.
+
+### Flash driver primitive (for update A)
+`SYSAPI_EraseUSRFlashType2` (0x1720B8) validates a type nibble (0x10/0x30) and calls the flash op primitive
+**`0x16892C`** with a command byte (e.g. `0x40`). `0x16892C` indexes a **0x26-byte-stride descriptor table at ~0x204158**
+by command and drives the SPI engine from it. So the flash driver is a table-driven command machine. Next: decode the
+descriptor table (erase/program/read-status opcodes), find the page-program path and the A/B bank select, then design
+update A to copy bank A→B internally and apply only the DDC-sent patch diff (DDC bandwidth makes a full-image stream
+impractical). **The flash-program code is the single highest-risk patch of the project — it needs explicit go-ahead
+and a careful staged test before any bank switch.**
