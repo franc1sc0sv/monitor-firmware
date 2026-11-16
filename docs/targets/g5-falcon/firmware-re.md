@@ -720,3 +720,19 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
   Open hypotheses: the SPARC's mailbox-reply path for 0x12 (FE2P load) reinitialises/reboots when the reply is not
   one it requested; or the read needs more state the settings task sets up. Next: decode the SPARC side that consumes
   the 0x12 reply (+0xB0 checksum / +0xB8 = 2) before trying again.
+
+### Why 8051 flash reads reset the chip; executable memory map (hardware-confirmed 2026-11-16)
+- A cmd 0x12 read resets the **whole chip** (8051 XDATA F19F / A7F0 markers and SPARC BSS all cleared). It happens
+  with the firmware's lock bracket and with HAL mode 2 (SPARC waiting inside SRAM). Reading nothing (no handshake)
+  is harmless. Working hypothesis: the SPARC executes in place from SPI flash (which is why "code RAM" rejects
+  stores), and an 8051 flash transaction while the SPARC (or an interrupt handler) fetches from flash kills the bus.
+- Memory facts: BSS 0xA803xxxx writable, **not executable** (reboot). Code 0x1xxxxx-0x3xxxxx executable, **not
+  writable** (XIP flash). HAL/trap table SRAM 0xA0028000..0xA0030FFF: executable, but a firmware memcpy into it
+  (0xA002D6B8) rebooted the chip -> **not writable at runtime**. 0xA0031000..0xA0040000+ reads stable "random" data
+  and ignores writes (memcpy to 0xA0038000 had no effect) -> most likely the chip's mask ROM.
+- Firmware memcpy = 0x164FAC (runtime 0x1652CC): byte loop (dst, src, n); verified on BSS.
+- Consequence: no RAM is both writable and executable at runtime, and the SPARC cannot keep running while the 8051
+  touches the flash. A DDC flasher therefore needs either (a) a flash worker linked into the **HAL SRAM image**
+  (loaded at boot, runs from SRAM with interrupts off, takes its command list from BSS) - one more USB image, or
+  (b) "park and reboot": queue one 8051 flash op, park the SPARC in SRAM with HAL mode 3, let the watchdog reboot -
+  one op per reboot, only workable for tiny patches, and still unproven that the op completes before the reset.
