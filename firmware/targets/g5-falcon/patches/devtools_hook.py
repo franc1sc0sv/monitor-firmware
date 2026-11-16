@@ -44,11 +44,12 @@ CODE_MAX = 0x280                       # whole verified-dead region
 SLOTS = 0xA803CFC0
 ADDR, TARG, ARG0, RESULT, SAVED, DELTA = SLOTS, SLOTS + 4, SLOTS + 8, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x20
 VALW = SLOTS + 0x24                    # 32-bit value staged for the F6 word-write
-SPI_LO, SPI_HI = 0xCF03C000, 0xCF03D000  # SPI controller MMIO window (F6 word-write guard)
+SPI_LO, SPI_HI = 0xCF03C000, 0xCF03D000
+assert SPI_LO % 0x400 == 0 and SPI_HI % 0x400 == 0, "SPI bounds are compared with sethi only"  # SPI controller MMIO window (F6 word-write guard)
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
 WLO, WHI = SLOTS, SLOTS + 0x28         # F4 byte-write window: the slots only
 DRAM_LO, DRAM_HI = 0xCF011F80, 0xCF011FC0  # DRAM access port (second F6 window; see firmware-re.md)
-NEW_VERSION = "1020.1"           # slots out of settings RAM; F6 also reaches the DRAM access port
+NEW_VERSION = "1020.2"           # slots out of settings RAM; F6 also reaches the DRAM access port
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 
@@ -125,8 +126,9 @@ def build() -> tuple[int, bytes, int]:
     a.ins("retl"); a.ins("mov 1, %o0")
     a.label("SF4")   # write value_low (g4) at ADDR if in [WLO,WHI), ADDR += 1
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g5")
-    a.ins(f"sethi {_hi(WLO)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "SEND"); a.ins("nop")
-    a.ins(f"sethi {_hi(WHI)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND"); a.ins("nop")
+    # full 32-bit bounds (sethi alone drops the low 10 bits: 1020.1 bug, the slot window collapsed to empty)
+    a.addr("%g2", WLO); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "SEND"); a.ins("nop")
+    a.addr("%g2", WHI); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND"); a.ins("nop")
     a.ins("stb %g4, [%g5]"); a.addr("%g2", ADDR); a.ins("add %g5, 1, %g5"); a.ins("st %g5, [%g2]")
     a.label("SEND"); a.ins("retl"); a.ins("mov 1, %o0")
     a.label("SF5")   # call TARG(arg0..arg3) with the code relocated at runtime; RESULT = return value

@@ -640,3 +640,6 @@ Next capture needs a faster watcher (F190/F198/F19B..F19E only, no per-read VCP 
   monitor recovered on its own). Standard VCPs kept working.
 - **1020.1** moves the slots to BSS 0xA803CFC0 (top of the largest unreferenced gap 0xA803C3E8..0xA803D000) and keeps
   the DRAM-port F6 window. F4 may write only the slots.
+- **1020.1** runs (version string, F050 = 0x15, slots read 0 except ADDR = 0xA803CFC0, so BSS slots work), but its F4
+  guard compared `sethi`-truncated bounds: the slot window collapsed to [0xA803CC00, 0xA803CC00) and F4 wrote nothing.
+  **1020.2** loads both bounds with sethi+or (window [0xA803CFC0, 0xA803CFE8), checked in the disassembly).
