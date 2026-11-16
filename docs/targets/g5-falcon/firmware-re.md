@@ -316,3 +316,14 @@ Path chosen (safer): drive SPI by **calling the firmware's register functions ov
 find its read counterpart) rather than hand-poking MMIO. Decode the SPI command sequence (CS, opcode, address, data,
 status) starting with a read-only JEDEC (0x9F) / RDSR (0x05) proof, then flash read (backup/verify), then bank-B
 erase/program under the address guard.
+
+## DDC main-firmware flasher — feasibility conclusion (2026-11-15)
+After exhausting the angles (memory-mapped flash, high-level flash funcs, 8051 path, direct SPI), two hard walls make
+a practical DDC flasher for the MAIN firmware infeasible:
+1. **No SPARC flash R/W API**: the SPARC exposes only EEPROM-region erase; main-firmware flash R/W lives in the 8051.
+   The only SPARC/DDC route is driving the SPI controller register-by-register (2+ HAL layers at 0xA002xxxx +
+   0xCF03Cxxx) — very deep and, for writes, real brick risk.
+2. **DDC bandwidth**: DDC moves ~4 bytes/transaction (~0.1s). JEDEC/status/a few KB are fine, but programming bank B
+   (3.4 MB) or a full backup over DDC would take **days**. The channel isn't suited to MB-scale transfers.
+Recommendation: **consolidate the achieved HDMI control** (memory read/write, call-any-function, read-any-address —
+all validated) and keep **USB** as the firmware-flash path. The DDC flasher is not pursued further.
