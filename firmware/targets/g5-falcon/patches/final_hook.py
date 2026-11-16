@@ -21,7 +21,7 @@ import devtools_hook as dh  # noqa: E402  (Asm, call-site constants, assembler h
 from devtools_hook import Asm, md, f, _call, _hi  # noqa: E402
 nv = dh.nv
 
-VERSION = "1021.2"
+VERSION = "1021.4"
 LIST = 0xA803C600                                  # F8 call list (BSS, 24-byte entries)
 SLOTS = dh.SLOTS                                   # 0xA803CFC0 (hardware-proven in 1020.1..1020.3)
 ADDR, TARG, RESULT, SAVED, VALW = SLOTS, SLOTS + 4, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x24
@@ -107,6 +107,9 @@ def build_sparc() -> tuple[int, bytes, int]:
     return a.labels["SET"], code, a.labels["GET"]
 
 
+F6B3_CMP, F6C9_CMP = 0xF6BE, 0xF6CD                  # CJNE A,#0x1A in the flash-op prologue / epilogue
+
+
 def patch_8051(d: bytearray) -> None:
     def at(addr: int) -> int: return SEGA_DATA + addr
     assert bytes(d[at(POKE_AT):at(POKE_AT) + len(STOCK_EAAB)]) == STOCK_EAAB, "unexpected bytes at 0xEAAB"
@@ -115,6 +118,12 @@ def patch_8051(d: bytearray) -> None:
     d[at(POKE_AT):at(POKE_AT) + 16] = POKE
     d[at(PEEK_AT):at(PEEK_AT) + 37] = PEEK
     d[at(SLOT03):at(SLOT03) + 3] = bytes([0x02, PEEK_AT >> 8, PEEK_AT & 0xFF])
+    # 1021.4: the prologue/epilogue clear/set XDATA F1A8 bit0 when D511 == 0x1A (this chip); setting it resets the
+    # whole chip after every flash op. Compare against 0xFF instead (D511 is a read-only 0x1A): F1A8 is left alone,
+    # the F1DF bus grant/release is kept.
+    for cmp_at in (F6B3_CMP, F6C9_CMP):
+        assert bytes(d[at(cmp_at):at(cmp_at) + 2]) == bytes.fromhex("B41A"), hex(cmp_at)
+        d[at(cmp_at) + 1] = 0xFF
     f0, f1, size, _ = struct.unpack(">HHII", d[SEGA_HDR:SEGA_HDR + 12])
     assert (f0, f1, size) == (1, 0, 0xFAC0)
     d[SEGA_HDR + 8:SEGA_HDR + 12] = struct.pack(">I", sum(d[SEGA_DATA:SEGA_DATA + size]) & 0xFFFF)
@@ -182,6 +191,217 @@ wdone:
 """
 
 
+JOB, PBUF = 0xA803CA00, 0xA803C400                  # sector-job struct / page buffer (BSS upload window)
+HALMBOX, PREP, PUSH = 0xA002F220, 0x00150D08, 0x0015FEBC   # runtime addresses
+SET = lambda reg, v: f"sethi {_hi(v)}, {reg}\n    or {reg}, {v & 0x3FF}, {reg}"
+PIL_ON = "rd %psr, %l7\n    or %l7, 0xf00, %g1\n    wr %g1, %g0, %psr\n    nop\n    nop\n    nop"
+PIL_OFF = "wr %l7, %g0, %psr\n    nop\n    nop\n    nop"
+def HAL(o0, o1, o2, o3, o4):
+    return f"""mov {o0}, %o0
+    mov {o1}, %o1
+    mov {o2}, %o2
+    mov {o3}, %o3
+    mov {o4}, %o4
+    {SET('%g1', HALMBOX)}
+    jmpl %g1, %o7
+    nop"""
+# job: +0 dst flash (4 KB aligned; must be in the INACTIVE bank - tag byte flash 0x7FFF == 0xAA means bank B is
+# active, so only [0x8000,0x400000) is allowed, else only [0x400000,0x800000) - or the activation sector 0x7000), +4 src VA of the page source (0 = 0xFF),
+# +8 run count, +12 runs {u16 off, u16 len, data[len], pad to 4}. Erases dst, programs the 16 pages built from
+# src+runs (all-FF pages skipped), flushes, verifies against the XIP view and returns the mismatching word count
+# (-1 = refused). The 8051 ops run with PIL 15 (no flash fetches while the 8051 owns the SPI bus).
+SECJOB_SRC = f"""
+    save %sp, -0x70, %sp
+    {SET('%l0', JOB)}
+    ld [%l0], %l1
+    and %l1, 0xfff, %g1
+    cmp %g1, 0
+    bne jfail
+    nop
+    sethi {_hi(0x7000)}, %g1
+    cmp %l1, %g1
+    be jok
+    nop
+    {SET('%g1', 0x6FFFFC)}
+    ld [%g1], %g1
+    and %g1, 0xff, %g1
+    cmp %g1, 0xaa
+    be jact_b
+    nop
+    srl %l1, 22, %g1
+    cmp %g1, 1
+    be jok
+    nop
+    ba jfail
+    nop
+jact_b:
+    srl %l1, 22, %g1
+    cmp %g1, 0
+    bne jfail
+    nop
+    sethi {_hi(0x8000)}, %g1
+    cmp %l1, %g1
+    blu jfail
+    nop
+jok:
+    ld [%l0+4], %l2
+    ld [%l0+8], %l3
+    add %l0, 12, %l4
+    {SET('%l6', PBUF)}
+    {SET('%g1', 0x108000)}
+    sub %l1, %g1, %i2
+    {SET('%g1', 0x7FFFFF)}
+    and %i2, %g1, %i2
+    {SET('%g1', PREP)}
+    jmpl %g1, %o7
+    nop
+    srl %l1, 24, %i3
+    {HAL(0x21, 0xA7, 0x57, '%i3', 1)}
+    srl %l1, 16, %i3
+    and %i3, 0xff, %i3
+    {HAL(0x21, 0xA7, 0x58, '%i3', 1)}
+    {HAL(0x21, 0xA7, 0x59, 0, 1)}
+    {HAL(0x21, 0xA7, 0x5A, 0, 1)}
+    srl %l1, 8, %i3
+    and %i3, 0xff, %i3
+    {HAL(0x14, 1, '%i3', 0, 1)}
+    {PIL_ON}
+    {HAL(0x13, 0, 0, 0, 2)}
+    {PIL_OFF}
+    mov 0, %l5
+jpg:
+    call jbuild
+    nop
+    mov %l6, %g2
+    mov 64, %g3
+jff:
+    ld [%g2], %g4
+    cmp %g4, -1
+    bne jprog
+    nop
+    add %g2, 4, %g2
+    subcc %g3, 1, %g3
+    bne jff
+    nop
+    ba jnext
+    nop
+jprog:
+    mov 0, %o0
+    mov 256, %o1
+    mov %l6, %o2
+    {SET('%g1', PUSH)}
+    jmpl %g1, %o7
+    nop
+    sll %l5, 8, %i3
+    add %l1, %i3, %i3
+    srl %i3, 8, %i3
+    and %i3, 0xff, %i3
+    {HAL(0x14, 1, '%i3', 0, 1)}
+    {PIL_ON}
+    {HAL(0x11, 0, 0, 0, 2)}
+    {PIL_OFF}
+jnext:
+    add %l5, 1, %l5
+    cmp %l5, 16
+    bl jpg
+    nop
+    flush %g0
+    mov 0, %i1
+    mov 0, %l5
+jvp:
+    call jbuild
+    nop
+    sll %l5, 8, %g1
+    add %i2, %g1, %g1
+    mov %l6, %g2
+    mov 64, %g3
+jvl:
+    ld [%g1], %g4
+    ld [%g2], %g5
+    cmp %g4, %g5
+    be jvn
+    nop
+    add %i1, 1, %i1
+jvn:
+    add %g1, 4, %g1
+    add %g2, 4, %g2
+    subcc %g3, 1, %g3
+    bne jvl
+    nop
+    add %l5, 1, %l5
+    cmp %l5, 16
+    bl jvp
+    nop
+    ret
+    restore %i1, 0, %o0
+jfail:
+    ret
+    restore %g0, -1, %o0
+jbuild:
+    sll %l5, 8, %g1
+    mov %l6, %g2
+    mov 64, %g3
+    cmp %l2, 0
+    be jbff
+    nop
+    add %l2, %g1, %g1
+jbc:
+    ld [%g1], %g4
+    st %g4, [%g2]
+    add %g1, 4, %g1
+    add %g2, 4, %g2
+    subcc %g3, 1, %g3
+    bne jbc
+    nop
+    ba jbp
+    nop
+jbff:
+    mov -1, %g4
+jbf1:
+    st %g4, [%g2]
+    add %g2, 4, %g2
+    subcc %g3, 1, %g3
+    bne jbf1
+    nop
+jbp:
+    mov %l4, %g1
+    mov %l3, %g2
+jbr:
+    cmp %g2, 0
+    be jbret
+    nop
+    lduh [%g1], %g3
+    lduh [%g1+2], %g4
+    add %g1, 4, %o0
+    mov 0, %o1
+jbk:
+    cmp %o1, %g4
+    be jbkd
+    nop
+    add %g3, %o1, %o2
+    srl %o2, 8, %o3
+    cmp %o3, %l5
+    bne jbkn
+    nop
+    and %o2, 0xff, %o2
+    ldub [%o0+%o1], %o3
+    stb %o3, [%l6+%o2]
+jbkn:
+    ba jbk
+    add %o1, 1, %o1
+jbkd:
+    add %g4, 3, %o2
+    andn %o2, 3, %o2
+    add %o2, 4, %o2
+    add %g1, %o2, %g1
+    ba jbr
+    sub %g2, 1, %g2
+jbret:
+    retl
+    nop
+"""
+
+
 def build_worker() -> bytes:
     from keystone import Ks, KS_ARCH_SPARC, KS_MODE_BIG_ENDIAN, KS_MODE_SPARC32
     ks = Ks(KS_ARCH_SPARC, KS_MODE_SPARC32 | KS_MODE_BIG_ENDIAN)
@@ -189,7 +409,12 @@ def build_worker() -> bytes:
     stub = bytes(stub)
     assert stub == bytes.fromhex("1080000001000000"), stub.hex()
     body, _ = ks.asm(WORKER_SRC, WORKER)
-    return stub + bytes(body)
+    code = stub + bytes(body)
+    global SECJOB
+    SECJOB = (CRASH + len(code) + 7) & ~7
+    code += b"\x01\x00\x00\x00" * ((SECJOB - CRASH - len(code)) // 4)
+    job, _ = ks.asm(SECJOB_SRC, SECJOB)
+    return code + bytes(job)
 
 
 def patch_hal(d: bytearray) -> int:
@@ -224,7 +449,7 @@ def main(stock_path: str, version: str = VERSION) -> None:
     diff = [i for i in range(len(stock)) if stock[i] != out[i]]
     in8051 = [i for i in diff if SEGA_HDR <= i < SEGA_DATA + 0xFAC0]
     print(f"built {dst}  hook {len(code)}B, {len(diff)} bytes changed ({len(in8051)} in the 8051 record), sum16 {name.tag}")
-    print(f"  HAL worker {wlen}B at SRAM {hex(CRASH)} (entry stub) / {hex(WORKER)} (worker), list {hex(WLIST)}")
+    print(f"  HAL code {wlen}B at SRAM {hex(CRASH)} (entry stub) / {hex(WORKER)} (worker, list {hex(WLIST)}) / {hex(SECJOB)} (sector job {hex(JOB)})")
     print(f"  8051 changed offsets: {hex(min(in8051))}..{hex(max(in8051))}  GET={hex(get_entry)} SET={hex(set_entry)}")
 
 

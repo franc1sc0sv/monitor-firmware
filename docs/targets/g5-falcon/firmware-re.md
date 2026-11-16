@@ -786,3 +786,17 @@ pattern programmed and **read back identical through the XIP window**; then Eras
 op runs but nothing is written) -> POKE FE2P_BASE a757..a75a = addr & 0xFFFF0000 -> cmd 0x14 (len pages, offset
 hi/lo) -> cmd 0x11 (program from 8051 XDATA 0xA800, data loaded with SPARC 0x15FB9C(0, 256, buf)) or cmd 0x13
 (4 KB erase, opcode 0x20) with HAL mode 2. ~100 s per 256-byte page and ~45 s per erase, dominated by the reboot.
+
+### Direct SPI works without resets; 1021.4 (built) = the 1-minute flasher
+- With the SRAM worker (PIL 15) and **F1DF |= 0x80** (the 8051 SPI bus grant used by 0xF6B3), a POKE/PEEK-driven
+  RDID returned **0xEF (Winbond)** and RDSR **0x9E**, with no reset (F1A8 untouched).
+- 8051 page program (0x77C9): fill F1C3 with the bytes (F1C0=0x82), WREN (F0EE=6, F0E5=1), RDSR until WEL, address
+  F0F0..F2, F0E6=(x&0C)|1, F0F4=3, F0EA=0x02, F0EB=0, F0EC/ED=len-1, F1C0=2, F0EE=F1C0 (dummy), F1C2 rewrite,
+  F1C1=1, F1C0=4, F0E5=1 and wait, F1C0=0, RDSR until !WIP.
+- **1021.4**: (a) the 8051 prologue/epilogue compares D511 against 0xFF instead of 0x1A (bytes 0xF6BF / 0xF6CE), so
+  stock erase/program/read no longer touch F1A8 and no longer reset the chip; (b) SRAM "sector job" at 0xA002D780:
+  job struct at 0xA803CA00 {dst, srcVA (0 = FF), nruns, runs{u16 off,u16 len,data}}, erases dst, builds and programs
+  the 16 pages (src page + runs; all-FF pages skipped; data via 0x15FB9C; 8051 ops with PIL 15), flushes, verifies
+  against the XIP view and returns the mismatching word count (-1 = refused). Guard: dst must be the activation
+  sector 0x7000 or lie in the **inactive** bank (tag byte at flash 0x7FFF read in-chip). Source must never be the
+  destination sector (it is erased first).
