@@ -37,9 +37,11 @@ GET_CS, SET_CS = 0x103EBC, 0x104170
 REGION = 0x1E14EC                      # verified-dead, 0x280 bytes
 SLOTS = 0xA8039A00                     # writable BSS
 ADDR, TARG, ARG0, RESULT, SAVED, DELTA = SLOTS, SLOTS + 4, SLOTS + 8, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x20
+VALW = SLOTS + 0x24                    # 32-bit value staged for the F6 word-write
+SPI_LO, SPI_HI = 0xCF03C000, 0xCF03D000  # SPI controller MMIO window (F6 word-write guard)
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
 WLO, WHI = 0xA8034000, 0xA803C400      # read+write window (BSS)
-NEW_VERSION = "1018.0"           # hook change: read any addr (probe flash map / SPI status)
+NEW_VERSION = "1019.0"           # add F3 word-read + F6 word-write to SPI MMIO
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 
@@ -81,15 +83,21 @@ class Asm:
 def build() -> tuple[int, bytes, int]:
     a = Asm(REGION)
     # ---- GET (F2): read 4 bytes at ADDR, in [RLO,RHI) or [WLO,WHI) ----
-    a.label("GET")
-    a.ins("cmp %o0, 0xF2"); a.br("bne", GETVCP); a.ins("nop")
+    a.label("GET")   # F2 = 4 byte-reads at ADDR ; F3 = one 32-bit word read at ADDR (for MMIO). Read any address.
+    a.ins("cmp %o0, 0xF2"); a.br("be", "GB4"); a.ins("nop")
+    a.ins("cmp %o0, 0xF3"); a.br("be", "GW"); a.ins("nop")
+    a.br("ba", GETVCP); a.ins("nop")
+    a.label("GB4")
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g3")
-    # read guard removed: F2 may read ANY address (read-only is the safe category; used to probe for a
-    # memory-mapped flash window and to read the SPI controller status). Writes stay BSS-only.
-    a.label("GOK")
     for k in range(4): a.ins(f"ldub [%g3+{k}], %g4" if k else "ldub [%g3], %g4"); a.ins(f"stb %g4, [%o1+{k}]" if k else "stb %g4, [%o1]")
     a.addr("%g2", ADDR); a.ins("add %g3, 4, %g3"); a.ins("st %g3, [%g2]")
     a.ins("retl"); a.ins("mov 1, %o0")
+    a.label("GW")   # 32-bit word load (MMIO needs word access); returns the word big-endian in the 4 reply bytes
+    a.addr("%g2", ADDR); a.ins("ld [%g2], %g3"); a.ins("ld [%g3], %g3")   # g3 = word at [ADDR]
+    a.ins("srl %g3, 24, %g4"); a.ins("stb %g4, [%o1]")
+    a.ins("srl %g3, 16, %g4"); a.ins("stb %g4, [%o1+1]")
+    a.ins("srl %g3, 8, %g4"); a.ins("stb %g4, [%o1+2]")
+    a.ins("stb %g3, [%o1+3]")
     a.ins("retl"); a.ins("mov 1, %o0")
     # ---- SET (F0/F1/F4/F5) ----
     a.label("SET")
@@ -98,6 +106,7 @@ def build() -> tuple[int, bytes, int]:
     a.ins("cmp %o0, 0xF1"); a.br("be", "SF1"); a.ins("nop")
     a.ins("cmp %o0, 0xF4"); a.br("be", "SF4"); a.ins("nop")
     a.ins("cmp %o0, 0xF5"); a.br("be", "SF5"); a.ins("nop")
+    a.ins("cmp %o0, 0xF6"); a.br("be", "SF6"); a.ins("nop")
     a.br("ba", SETVCP); a.ins("nop")
     a.label("SF0")   # ADDR = (value16<<16) | (ADDR & 0xFFFF)
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g5")
@@ -124,6 +133,12 @@ def build() -> tuple[int, bytes, int]:
     a.addr("%g2", RESULT); a.ins("st %o0, [%g2]")          # store return value
     a.addr("%g2", SAVED); a.ins("ld [%g2], %o7")           # restore hook return
     a.ins("retl"); a.ins("mov 1, %o0")
+    a.label("SF6")   # write 32-bit VALW to [ADDR], only if ADDR is in the SPI controller MMIO window
+    a.addr("%g2", ADDR); a.ins("ld [%g2], %g5")            # g5 = target MMIO addr
+    a.ins(f"sethi {_hi(SPI_LO)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "SEND6"); a.ins("nop")
+    a.ins(f"sethi {_hi(SPI_HI)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND6"); a.ins("nop")
+    a.addr("%g2", VALW); a.ins("ld [%g2], %g4"); a.ins("st %g4, [%g5]")   # *ADDR = VALW (32-bit)
+    a.label("SEND6"); a.ins("retl"); a.ins("mov 1, %o0")
     code = a.assemble()
     assert len(code) <= 0x280, f"hook ({len(code)}B) overruns the dead region"
     return a.labels["SET"], code, a.labels["GET"]
