@@ -21,7 +21,8 @@ import devtools_hook as dh  # noqa: E402  (Asm, call-site constants, assembler h
 from devtools_hook import Asm, md, f, _call, _hi  # noqa: E402
 nv = dh.nv
 
-VERSION = "1021.0"
+VERSION = "1021.1"
+LIST = 0xA803C600                                  # F8 call list (BSS, 24-byte entries)
 SLOTS = dh.SLOTS                                   # 0xA803CFC0 (hardware-proven in 1020.1..1020.3)
 ADDR, TARG, RESULT, SAVED, VALW = SLOTS, SLOTS + 4, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x24
 UP_LO, UP_HI = 0xA803C400, SLOTS + 0x28            # F4 window: upload area + slots
@@ -51,7 +52,7 @@ def build_sparc() -> tuple[int, bytes, int]:
     a.ins("retl"); a.ins("mov 1, %o0")
     a.label("SET")
     a.ins("ldub [%fp-0x2c], %g3"); a.ins("ldub [%fp-0x2b], %g4"); a.ins("sll %g3, 8, %g3"); a.ins("or %g3, %g4, %g3")
-    for code, lab in ((0xF0, "SF0"), (0xF1, "SF1"), (0xF4, "SF4"), (0xF5, "SF5"), (0xF6, "SF6")):
+    for code, lab in ((0xF0, "SF0"), (0xF1, "SF1"), (0xF4, "SF4"), (0xF5, "SF5"), (0xF6, "SF6"), (0xF8, "SF8")):
         a.ins(f"cmp %o0, {code}"); a.br("be", lab); a.ins("nop")
     a.br("ba", dh.SETVCP); a.ins("nop")
     a.label("SF0")
@@ -79,6 +80,18 @@ def build_sparc() -> tuple[int, bytes, int]:
     a.addr("%g2", RESULT); a.ins("st %o0, [%g2]")
     a.addr("%g2", SAVED); a.ins("ld [%g2], %o7")
     a.ins("retl"); a.ins("mov 1, %o0")
+    a.label("SF8")   # run the call list at LIST: entries {target, a0..a4}; result overwrites target; stop at target 0
+    # (BSS is not executable on this chip, so multi-step sequences run here, in code RAM, calling firmware only)
+    a.ins("save %sp, -0x60, %sp")
+    a.addr("%l0", LIST)
+    a.label("S8L")
+    a.ins("ld [%l0], %g1"); a.ins("cmp %g1, 0"); a.br("be", "S8D"); a.ins("nop")
+    a.ins("ld [%l0+4], %o0"); a.ins("ld [%l0+8], %o1"); a.ins("ld [%l0+0xC], %o2")
+    a.ins("ld [%l0+0x10], %o3"); a.ins("ld [%l0+0x14], %o4")
+    a.ins("jmpl %g1, %o7"); a.ins("nop")
+    a.ins("st %o0, [%l0]"); a.ins("add %l0, 24, %l0"); a.br("ba", "S8L"); a.ins("nop")
+    a.label("S8D")
+    a.ins("ret"); a.ins("restore %g0, 1, %o0")
     a.label("SF6")
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g5")
     a.addr("%g2", dh.DRAM_LO); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "W6SPI"); a.ins("nop")
