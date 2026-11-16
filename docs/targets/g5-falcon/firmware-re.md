@@ -110,9 +110,17 @@ The SPARC code region (file `0x12E000..0x21DCE0`) has **no zero/nop padding runs
 MStar cave, there is no free padding to inject into. The hook code must therefore **reclaim dead code**: uncalled
 stubs the sibling RE flagged (PDIC/TCON/FPGA update stubs with no reachable callers). Confirmed present on our image:
 
-| Candidate | VA | File | Note |
-|---|---|---|---|
-| PDIC "not implemented" stub | `0x1E45D4` | `0x2125D4` | sibling RE: no callers; logs and returns 0 (string at file `0x319113`) |
+| Candidate | VA | File | Size | Callers | Note |
+|---|---|---|---|---|---|
+| PDIC "not implemented" stub | `0x1E45D4` | `0x2125D4` | `0x90` (144 B) | **0** | confirmed dead; enough for the Get+Set hook |
+| adjacent stub | `0x1E4510` | `0x212510` | `0x40` (64 B) | **0** | also dead; extra room if needed |
 
-Next: confirm no live caller reaches a chosen stub, measure its reclaimable length, and verify r3..r8/r9 usage rules
-(the project's hook register discipline) translate to the SPARC ABI before writing into it.
+Confirmed in `main_direct_call_edges.csv`: no edge targets `0x1E45D4`. 144 bytes is ample for a memory read/write hook.
+
+### Remaining before writing the hook
+
+- **Scratch RAM** for the current address (LC34 used its RAM block): locate a few unused runtime bytes
+  (`0xA80xxxxx` globals or spare settings bytes). Next step.
+- **SPARC ABI for the hook**: the hook is entered at the Get call site with `%o0`=code, `%o1`=reply buf; it may use
+  `%o2..%o5`/`%g1..%g4` freely (caller-saved), must preserve the caller's `%i*`/`%l*`, and ends by either returning a
+  value in `%o0` or branching to the real handler. No `save` needed if it stays in the caller's window.
