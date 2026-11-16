@@ -144,7 +144,7 @@ def build() -> tuple[int, bytes, int]:
     return a.labels["SET"], code, a.labels["GET"]
 
 
-def main(stock_path: str) -> None:
+def main(stock_path: str, version: str = NEW_VERSION) -> None:
     stock = pathlib.Path(stock_path).read_bytes()
     d = bytearray(stock)
     set_entry, code, get_entry = build()
@@ -158,7 +158,7 @@ def main(stock_path: str) -> None:
         if i.mnemonic in ("ba", "be", "bne", "blu", "bgeu", "call") and i.op_str.startswith("0x"):
             t = int(i.op_str, 16)
             assert t in (GETVCP, SETVCP) or REGION <= t < REGION + len(code), f"bad target {i.op_str} @ {hex(i.address)}"
-    out, name = nv.restamp(bytes(d), NEW_VERSION, family=b"M-C5500GGZA")
+    out, name = nv.restamp(bytes(d), version, family=b"M-C5500GGZA")
     nv.verify_stock(out, name.filename, family=b"M-C5500GGZA")
     dst = pathlib.Path(stock_path).parent.parent.parent / "builds" / name.filename
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -169,4 +169,4 @@ def main(stock_path: str) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(*sys.argv[1:3])  # optional 2nd arg: version string (same code, new version so the updater accepts it)
