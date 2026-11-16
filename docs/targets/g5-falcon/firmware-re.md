@@ -699,3 +699,10 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
   The engine is presumably shared with code fetch; only the 8051's own flash routines may use it.
 - cmd 0x12 (b1 = 1) did not leave data in XDATA 0xA800 (reads 0xFF) and the +0xB0 reply read 0: the read data path
   (0x8145 -> probably DMA into SPARC DRAM, cf. the settings reload seen on 1019.0) is still to be decoded.
+- **BSS is not executable**: an uploaded 2-instruction leaf (`retl; mov 0x77,%o0`) at 0xA803C400 called with F5
+  rebooted the monitor (BSS wiped, 1021.0 intact), while F5 calls into firmware/HAL code work. No executable alias of
+  BSS found (0x0/0x08/0x20/0x28/0x40/0x48/0x68/0x88xxxxxx read 0; 0xC8/0xE8 fail; 0xA003C400 is HAL code). The
+  earlier "SPI-engine crash" and "runner crash" are the same cause. **Consequence: no custom code runs on the SPARC;
+  every flash operation must be a DDC-paced sequence of F5 calls to existing firmware functions** (erase 0x15E560,
+  data push 0x15FB9C, program 0x15E524, read 0x15E490, all at runtime +0x320) plus 8051 PEEK/POKE.
+- Writable executable memory would need another hook (e.g. a tiny interpreter loop in the dead region); not done.

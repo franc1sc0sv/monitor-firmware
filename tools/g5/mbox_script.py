@@ -2,7 +2,7 @@
 """Build a SPARC 'mailbox script runner' for the 1021.0 hook and emit a PowerShell file that uploads and runs it.
 
 The runner (uploaded at 0xA803C400) walks a table of 4-byte entries (cmd, b1, b2, b3; cmd 0 ends) and calls the HAL
-mailbox for each one back to back; after every entry it waits a short loop and stores the mailbox reply word (+0xB4)
+mailbox for each one back to back (mode 2 = handshake for cmd 0x12 read, mode 1 otherwise); after every entry it waits a short loop and stores the mailbox reply word (+0xB4)
 into an output array. With the patched 8051 (cmd 0x21 POKE, cmd 0x03 PEEK) this runs an 8051 register sequence at
 full speed, which DDC-paced POKEs cannot (~1 s each).
 
@@ -32,6 +32,11 @@ loop:
     ldub [%l0+2], %o2
     ldub [%l0+3], %o3
     mov 1, %o4
+    cmp %o0, 0x12
+    bne m1
+    nop
+    mov 2, %o4
+m1:
     sethi {hi(HALMBOX)}, %g1
     or %g1, {lo(HALMBOX)}, %g1
     jmpl %g1, %o7
