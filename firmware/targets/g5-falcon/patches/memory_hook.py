@@ -21,10 +21,12 @@ CODE_SHIFT = 0x2E000
 f = lambda va: va + CODE_SHIFT
 GETVCP, SETVCP = 0x1882AC, 0x1869BC
 GET_CALLSITE, SET_CALLSITE = 0x103EBC, 0x104170
-REGION = 0x1E3428                     # dead func, 0x188 bytes, 0 callers
-VAR = REGION + 0x180                  # 4-byte current-address scratch at the tail
+REGION = 0x1E3428                     # dead func, 0x188 bytes, 0 callers (hook code; RUNTIME READ-ONLY)
+VAR = 0xA8039A00                      # 4-byte scratch in writable BSS (gap 0xA80395AC..0xA8039FB0); absolute-addressed
+                                      # like the firmware's own 0xA80xxxxx refs. Code RAM is RO at runtime, so scratch
+                                      # cannot live in the hook region.
 LO, HI = 0x100000, 0x2F8000           # safe RAM read/write window
-NEW_VERSION = "1011.0"                # must be higher than the version already on the unit (updater rejects <=)
+NEW_VERSION = "1014.0"           # > version currently on the unit
 
 ks = Ks(KS_ARCH_SPARC, KS_MODE_SPARC32 | KS_MODE_BIG_ENDIAN)
 md = Cs(CS_ARCH_SPARC, CS_MODE_BIG_ENDIAN)
@@ -115,7 +117,7 @@ def build_region() -> tuple[int, bytes, int]:
     a.label("SEND")
     a.ins("retl"); a.ins("mov 1, %o0")
     code = a.assemble()
-    assert len(code) <= (VAR - REGION), f"hook ({len(code)}B) overruns the scratch var"
+    assert len(code) <= 0x188, f"hook ({len(code)}B) overruns the dead region"
     return a.labels["SET"], code, a.labels["GET"]
 
 
@@ -123,8 +125,7 @@ def main(stock_path: str) -> None:
     stock = pathlib.Path(stock_path).read_bytes()
     d = bytearray(stock)
     set_entry, code, get_entry = build_region()
-    d[f(REGION):f(REGION) + len(code)] = code
-    d[f(VAR):f(VAR) + 4] = struct.pack(">I", LO)       # init current address to the start of the safe window
+    d[f(REGION):f(REGION) + len(code)] = code          # VAR is in BSS, zeroed at runtime (not initialised here)
     d[f(GET_CALLSITE):f(GET_CALLSITE) + 4] = _call(GET_CALLSITE, get_entry)
     d[f(SET_CALLSITE):f(SET_CALLSITE) + 4] = _call(SET_CALLSITE, set_entry)
 
