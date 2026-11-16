@@ -655,3 +655,33 @@ Next capture needs a faster watcher (F190/F198/F19B..F19E only, no per-read VCP 
 - F7 bug: it writes A0 (address byte 0) *after* the F84/F8C trigger, so each probe uses the previous probe's low
   byte. Harmless with a stride that is a multiple of 0x100 lines; fix = write A0 before the trigger (the decompiler's
   statement order for SPARC 0x1413EC was misleading). `g5-dram.ps1`'s DramLine writes A0 first and reads correctly.
+
+## FINAL-USB-FLASH PLAN (2026-11-16): one last USB image, then everything over HDMI
+Facts it relies on (all confirmed above): code RAM is read-only; BSS 0xA803C3E8..0xA803D000 is unreferenced and the
+1020.1+ slots at its top work; the stock updater cannot program from DDC-staged DRAM (its record table comes from
+USB/FAT sectors); only the 8051 can drive the SPI flash; mailbox flash ops are FE2P_BASE(XDATA a757..a75a)-relative.
+No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to a callback pointer table), but
+`0xEAAB..0xEAE1` (55 bytes, DP HDCP key write) is called only by mailbox cmd 0x21 (a factory command; unused on HDMI).
+
+**Image 1021.0 = the last USB flash.**
+1. 8051 runtime (record @0x8040, data @0x8060; per-record sum16 + file sum16 updated):
+   - `0xEAAB` POKE: `XDATA[a4aa:a4ab] = a4ac`; RET (cmd 0x21 handler prints, calls it, acks) — 16 bytes.
+   - `0xEABB` PEEK: `a4b0 = XDATA[a4aa:a4ab]`; reply copy exactly like 0xEC10 (`R3=1,R2=A4,R1=B0, a4bc=1, R7=B4,
+     LCALL C336`) -> mailbox +0xB4; `LJMP 2BBC` (ack) — 37 bytes. Dispatcher slot cmd 0x03 (`0x27BC`) -> `LJMP EABB`.
+   With POKE/PEEK the SPARC controls any 8051 XDATA: FE2P_BASE (so stock erase 0x13 / program 0x11 / write 0x15 /
+   read 0x12 work at any flash address) and the SPI engine registers (raw opcodes, e.g. 0x03 read, 0x9F JEDEC).
+2. SPARC hook (generic, nothing task-specific): F3 word read; F0/F1 address; **F4 writes 2 bytes per frame** into the
+   **upload window [0xA803C400, slots end)** (~3 KB); **F5 = call absolute [TARG] with ARG0..ARG4 (5 args, mode for
+   HAL_mbox), `flush` first, RESULT stored**; F6 MMIO windows (DRAM port, 8051 register page). Everything else (DRAM
+   sum/search, flash reader, the flasher state machine) is code uploaded to RAM over DDC and run with F5 — fixable
+   without USB.
+
+**After 1021.0 (all over HDMI, each write step only with the user's OK in the moment):**
+1. Read-only: PEEK FE2P_BASE; PEEK/POKE round-trip on a scratch XDATA byte; raw-SPI JEDEC (0x9F) via the 8051.
+2. Read-only: raw-SPI read of boot sector 0x7000..0x7FFF and the bank descriptor -> exact bank-B layout + tag.
+3. Uploaded engine reads the whole active bank into DRAM (raw SPI 0x03 via POKE/PEEK loop), checksums it against the
+   image file -> proves the read path and gives an in-chip source image.
+4. Diff (only changed lines) sent over DDC into the DRAM copy; checksums recomputed in-chip.
+5. Erase+program bank B from DRAM with the stock 8051 routines (FE2P_BASE moved, restored after), verify by read-back,
+   write the region-B descriptor, **flip 0x7FFF last**. Hard address guard in the engine: bank B + its descriptor
+   sector only.
