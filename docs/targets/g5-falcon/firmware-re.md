@@ -558,3 +558,21 @@ All of these are in (or next to) the SPARC-visible register page, but whether SP
 accepted (unlike the SPI engine) is untested. A further, speculative lead: "ISP ROMCODE mode" may be the chip's
 mask-ROM ISP that Novatek factory tools drive over DDC; if the updater's ISP start makes a new I2C slave appear, a true
 DDC flasher would use the vendor ISP protocol (with our tag-last discipline).
+
+## DDC flasher — design options after the 2026-11-16 RE (decision needed; no 1020.0 built yet)
+Facts that constrain every design: the SPARC can never touch the flash (SPI engine ignores SPARC writes); only the 8051
+can, either through its runtime mailbox (FE2P window only, base fixed at boot) or by starting the ROM-code ISP from the
+USB updater. DDC moves ~4 bytes per transaction, so any route must keep the bulk copy inside the chip.
+
+| Route | How bank B gets written | What a 1020.0 hook would add | Main risk |
+|---|---|---|---|
+| A. Vendor updater + ROM ISP | SPARC switches the 8051 to the updater (F1D3..F1D8 + warm reset, to be proven), stages the image in DRAM where CMD_LOADFILE2DRAM puts it (mostly a copy of the running image + small diff), sends 0x17 (DUALFW) via F191; the ROM ISP programs the inactive region and the tag | F6 allowlist widened to F19x / F1D3..F1D8 / F1E0 / F1EB (+0xCF011F80, 0xCF035F80 if needed), a DRAM write/copy primitive (memcpy via F5 + diff writes outside BSS) | low brick risk (vendor dual-FW logic, old bank stays valid until the tag flips); unknown ROM-ISP contract |
+| B. Patched 8051 runtime (USB flash once) | add a mailbox command "set FE2P base / 24-bit address" to the runtime; a SPARC hook then copies bank A->B with the 8051's own erase/program/read, applies the DDC diff, verifies, writes the 0x7000 descriptor, flips 0x7FFF last | mailbox primitive with a hard bank-B address guard + tag-last state machine | runtime record is shared by both banks? must prove a broken runtime cannot block the USB updater before flashing it |
+| C. Vendor ISP over DDC | if "ISP ROMCODE mode" exposes a new I2C slave, use the Novatek ISP protocol over DDC | none (host-side tool) | entering ISP mode without a way back = needs the USB stick as recovery |
+
+Supervised next steps (each one only with the user present, in this order):
+1. Read-only: `F5 MailBox_LoadFE2P(0, n)` -> F3 0x9F0A01B0 (checksum) to prove the SPARC->8051->flash read path end to end.
+2. Read-only: snapshot F1D0..F1E0 and 0xCF011F80 / 0xCF035F80 now, to compare with values during a real USB update.
+3. Capture a real USB update's register traffic (poll F190..F19F / F1E0 over DDC while the monitor updates from the
+   stick) to learn the hand-off and the ROM-ISP status sequence without guessing.
+4. Then choose A or B and build 1020.0 for it.
