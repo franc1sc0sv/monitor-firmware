@@ -736,3 +736,12 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
   (loaded at boot, runs from SRAM with interrupts off, takes its command list from BSS) - one more USB image, or
   (b) "park and reboot": queue one 8051 flash op, park the SPARC in SRAM with HAL mode 3, let the watchdog reboot -
   one op per reboot, only workable for tiny patches, and still unproven that the op completes before the reset.
+- HAL SRAM image = container record @0x023CC0 (flash 0x0D0000, 0x7760 bytes) loaded to **0xA0028000..0xA002F75F**
+  (file 0x23CE0 + k <-> SRAM 0xA0028000 + k, checked at 0xA0029600 / 0xA002C414 / 0xA002F220). SRAM above it
+  (0xA002F760..0xA0031000) holds stable power-up noise (same as the dump taken hours earlier) -> unused, but a
+  memcpy into it (0xA0030800) also reset the chip: **SRAM is write-protected for the SPARC at runtime**.
+- 0xA002D6B8 (runtime) is the "System Crash, PC" reporter reached from the trap table - not free.
+- Only path left for an in-chip flash worker: ship it inside the HAL record (boot loads it into SRAM). Least risky
+  placement: inside the crash reporter (keep a minimal "spin -> watchdog reset" stub at its entry), so the record
+  size and the boot descriptor stay unchanged. The worker would raise PIL (no interrupts -> no flash fetch), run a
+  BSS command list through HAL_mbox / the HAL mailbox writer (both in SRAM), and return.
