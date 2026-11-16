@@ -144,6 +144,12 @@ Why it is correct: the dispatcher's `call` sets `%o7 = 0x103EBC`; both `retl` (o
 return to `%o7+8 = 0x103EC4`, exactly where the stock flow resumes (`andcc %o0,0xff` — the supported check). So a
 read of VCP `0xF2` over DDC should return `AD DE BE EF`; every other code behaves bit-for-bit as stock.
 
+**VALIDATED ON HARDWARE 2026-11-15.** Built `M-C5500GGZA-1010.0[C349]` (proof_hook.py), flashed from USB. Over
+DDC/CI on the AMD HDMI link, Get VCP `0xF2` returns the magic bytes and `0x10/0x12/0x60` are unchanged. This proves
+custom injected code runs on the G5 and answers over HDMI — the foundation for the memory read/write VCPs. The four
+reply bytes come back as MH:ML:CH:CL = `EF DE BE AD`, i.e. the buffer at `%o1` maps to the reply fields in the order
+`[+3][+1][+2][+0]` (to pin down exactly from a stock handler's buffer-fill before the memory-read feature).
+
 ### For the real memory-read step (after the proof)
 
 - **Scratch RAM** for the current address (LC34 used its RAM block): locate a few unused runtime bytes
