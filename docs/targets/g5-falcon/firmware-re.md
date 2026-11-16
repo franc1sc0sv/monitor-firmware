@@ -223,3 +223,14 @@ descriptor table (erase/program/read-status opcodes), find the page-program path
 update A to copy bank A→B internally and apply only the DDC-sent patch diff (DDC bandwidth makes a full-image stream
 impractical). **The flash-program code is the single highest-risk patch of the project — it needs explicit go-ahead
 and a careful staged test before any bank switch.**
+
+### Storage subsystem (for the flasher)
+The flash-op table at VA `0x204158` (file `0x231E58`, data) is a table of **named storage-region descriptors**
+(`DG_EEPROM1`, `OPR_EEPROM_1`, `OPR_EEPROM_2`, ...), 0x26-byte entries. The SPI driver code uses the standard NOR
+opcodes (`02` page-program, `20`/`D8`/`C7` erase, `03` read, `06` WREN, `05` RDSR, `9F` JEDEC). The flasher must
+select the main-firmware region (bank A/B), not an EEPROM region.
+
+### Plan to minimise USB flashes (user preference)
+Do **all** the offline design first and ship **one** bundled image (memory read/write + the DDC flasher's stage/verify
+commands), flashed once by USB; after that, patches apply over DDC (fast). The bank-switch/activate stays a separate,
+explicitly-approved step. The flash-program code may still need 1-2 hardware iterations despite max static checking.
