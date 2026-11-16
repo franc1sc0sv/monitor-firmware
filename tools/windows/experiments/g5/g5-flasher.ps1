@@ -19,7 +19,8 @@ function WaitBack([int]$timeoutS = 90) {
 }
 function BaseOffsetList([UInt32]$f, [int]$lenPages, [int]$cmd) {
   $H = $script:HALMBOX; $base = $f -band 0xFFFF0000; $off = $f -band 0xFFFF
-  @( @($H, 0x21, 0xA7, 0x57, (($base -shr 24) -band 0xFF), 1), @($H, 0x21, 0xA7, 0x58, (($base -shr 16) -band 0xFF), 1),
+  $PREP = [Convert]::ToUInt32('00150D08', 16)   # firmware's pre-write step 0x1509E8 (reg 0xC bit 0x40)
+  @( @($PREP), @($H, 0x21, 0xA7, 0x57, (($base -shr 24) -band 0xFF), 1), @($H, 0x21, 0xA7, 0x58, (($base -shr 16) -band 0xFF), 1),
      @($H, 0x21, 0xA7, 0x59, (($base -shr 8) -band 0xFF), 1), @($H, 0x21, 0xA7, 0x5A, ($base -band 0xFF), 1),
      @($H, 0x14, $lenPages, (($off -shr 8) -band 0xFF), ($off -band 0xFF), 1), @($H, $cmd, 0, 0, 0, 2) )
 }

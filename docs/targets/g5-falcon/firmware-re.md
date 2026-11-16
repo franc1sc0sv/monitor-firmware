@@ -777,3 +777,12 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
   0x108000/0x2EB9AC; **descriptor B @0x7000 = the same +0x400000** (bank B confirmed at +4 MB).
 - Flasher shape that follows: write with the stock 8051 erase/program (one op per reset), verify by reading the XIP
   window, activate by rewriting sector 0x7000 (descriptor B + tag 0xAA at 0x7FFF) last.
+
+### FIRST FLASH WRITE OVER DDC (hardware-confirmed 2026-11-16, user-approved, bank B scratch sector)
+`g5-flasher.ps1` Program256 at **0x490000** (blank gap between bank-B records; mirror 0x090000 also blank): 256-byte
+pattern programmed and **read back identical through the XIP window**; then Erase4K returned the sector to all
+0xFF (verified). The monitor stayed on 1021.2. Required sequence (one F8 list, ends in the F1A8 reset):
+`0x1509E8` (firmware pre-write step: reg 0xC bit 0x40, evidently the write-protect release - without it the program
+op runs but nothing is written) -> POKE FE2P_BASE a757..a75a = addr & 0xFFFF0000 -> cmd 0x14 (len pages, offset
+hi/lo) -> cmd 0x11 (program from 8051 XDATA 0xA800, data loaded with SPARC 0x15FB9C(0, 256, buf)) or cmd 0x13
+(4 KB erase, opcode 0x20) with HAL mode 2. ~100 s per 256-byte page and ~45 s per erase, dominated by the reboot.
