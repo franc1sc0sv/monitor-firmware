@@ -39,7 +39,7 @@ SLOTS = 0xA8039A00                     # writable BSS
 ADDR, TARG, ARG0, RESULT, SAVED, DELTA = SLOTS, SLOTS + 4, SLOTS + 8, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x20
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
 WLO, WHI = 0xA8034000, 0xA803C400      # read+write window (BSS)
-NEW_VERSION = "1017.0"
+NEW_VERSION = "1018.0"           # hook change: read any addr (probe flash map / SPI status)
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 
@@ -84,18 +84,12 @@ def build() -> tuple[int, bytes, int]:
     a.label("GET")
     a.ins("cmp %o0, 0xF2"); a.br("bne", GETVCP); a.ins("nop")
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g3")
-    a.ins(f"sethi {_hi(RLO)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("blu", "GT2"); a.ins("nop")
-    a.ins(f"sethi {_hi(RHI)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("blu", "GOK"); a.ins("nop")
-    a.label("GT2")
-    a.ins(f"sethi {_hi(WLO)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("blu", "GBAD"); a.ins("nop")
-    a.ins(f"sethi {_hi(WHI)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("bgeu", "GBAD"); a.ins("nop")
+    # read guard removed: F2 may read ANY address (read-only is the safe category; used to probe for a
+    # memory-mapped flash window and to read the SPI controller status). Writes stay BSS-only.
     a.label("GOK")
     for k in range(4): a.ins(f"ldub [%g3+{k}], %g4" if k else "ldub [%g3], %g4"); a.ins(f"stb %g4, [%o1+{k}]" if k else "stb %g4, [%o1]")
     a.addr("%g2", ADDR); a.ins("add %g3, 4, %g3"); a.ins("st %g3, [%g2]")
     a.ins("retl"); a.ins("mov 1, %o0")
-    a.label("GBAD")
-    a.ins("mov 0xFF, %g4")
-    for k in range(4): a.ins(f"stb %g4, [%o1+{k}]" if k else "stb %g4, [%o1]")
     a.ins("retl"); a.ins("mov 1, %o0")
     # ---- SET (F0/F1/F4/F5) ----
     a.label("SET")
