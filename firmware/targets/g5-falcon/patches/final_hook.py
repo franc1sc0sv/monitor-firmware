@@ -21,7 +21,7 @@ import devtools_hook as dh  # noqa: E402  (Asm, call-site constants, assembler h
 from devtools_hook import Asm, md, f, _call, _hi  # noqa: E402
 nv = dh.nv
 
-VERSION = "1021.1"
+VERSION = "1021.2"
 LIST = 0xA803C600                                  # F8 call list (BSS, 24-byte entries)
 SLOTS = dh.SLOTS                                   # 0xA803CFC0 (hardware-proven in 1020.1..1020.3)
 ADDR, TARG, RESULT, SAVED, VALW = SLOTS, SLOTS + 4, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x24
@@ -120,6 +120,90 @@ def patch_8051(d: bytearray) -> None:
     d[SEGA_HDR + 8:SEGA_HDR + 12] = struct.pack(">I", sum(d[SEGA_DATA:SEGA_DATA + size]) & 0xFFFF)
 
 
+# ---- HAL SRAM flash worker (record @0x23CC0: flash 0x0D0000, loaded to SRAM 0xA0028000, sum16 checksum) ----
+HAL_HDR, HAL_DATA, HAL_SIZE, SRAM = 0x23CC0, 0x23CE0, 0x7760, 0xA0028000
+CRASH, CRASH_END = 0xA002D6B8, 0xA002E344          # "System Crash, PC" reporter; entry kept (exception vector)
+CRASH_HEAD = bytes.fromhex("9de3bf881b0007e7c24b60d880a06000")
+WORKER = CRASH + 8
+WLIST = 0xA803CA00                                  # worker list (BSS upload window), 24-byte entries
+WORKER_SRC = f"""
+    save %sp, -0x60, %sp
+    rd %psr, %l7
+    or %l7, 0xf00, %l6
+    wr %l6, %g0, %psr
+    nop
+    nop
+    nop
+    sethi {_hi(WLIST)}, %l0
+    or %l0, {WLIST & 0x3FF}, %l0
+    sethi {_hi(0xA0028000)}, %l1
+    sethi {_hi(0xA0031000)}, %l2
+wl:
+    ld [%l0], %g1
+    cmp %g1, 0
+    be wdone
+    nop
+    cmp %g1, 1
+    bne wchk
+    nop
+    ld [%l0+4], %l3
+wdly:
+    subcc %l3, 1, %l3
+    bne wdly
+    nop
+    ba wnext
+    mov 0, %o0
+wchk:
+    cmp %g1, %l1
+    blu wdone
+    nop
+    cmp %g1, %l2
+    bgeu wdone
+    nop
+    ld [%l0+4], %o0
+    ld [%l0+8], %o1
+    ld [%l0+0xc], %o2
+    ld [%l0+0x10], %o3
+    ld [%l0+0x14], %o4
+    jmpl %g1, %o7
+    nop
+wnext:
+    st %o0, [%l0]
+    add %l0, 24, %l0
+    ba wl
+    nop
+wdone:
+    wr %l7, %g0, %psr
+    nop
+    nop
+    nop
+    ret
+    restore %g0, 1, %o0
+"""
+
+
+def build_worker() -> bytes:
+    from keystone import Ks, KS_ARCH_SPARC, KS_MODE_BIG_ENDIAN, KS_MODE_SPARC32
+    ks = Ks(KS_ARCH_SPARC, KS_MODE_SPARC32 | KS_MODE_BIG_ENDIAN)
+    stub, _ = ks.asm(f"ba {CRASH}\nnop", CRASH)            # crash entry: spin in SRAM until the watchdog resets
+    stub = bytes(stub)
+    assert stub == bytes.fromhex("1080000001000000"), stub.hex()
+    body, _ = ks.asm(WORKER_SRC, WORKER)
+    return stub + bytes(body)
+
+
+def patch_hal(d: bytearray) -> int:
+    f0, f1, size, _ = struct.unpack(">HHII", d[HAL_HDR:HAL_HDR + 12])
+    assert (f0, f1, size) == (0x0D, 0, HAL_SIZE), "unexpected HAL record header"
+    at = HAL_DATA + (CRASH - SRAM)
+    assert bytes(d[at:at + 16]) == CRASH_HEAD, "unexpected bytes at the crash reporter"
+    code = build_worker()
+    assert CRASH + len(code) <= CRASH_END
+    d[at:at + len(code)] = code
+    d[HAL_HDR + 8:HAL_HDR + 12] = struct.pack(">I", sum(d[HAL_DATA:HAL_DATA + size]) & 0xFFFF)
+    return len(code)
+
+
 def main(stock_path: str, version: str = VERSION) -> None:
     stock = pathlib.Path(stock_path).read_bytes()
     d = bytearray(stock)
@@ -132,6 +216,7 @@ def main(stock_path: str, version: str = VERSION) -> None:
             t = int(i.op_str, 16)
             assert t in (dh.GETVCP, dh.SETVCP) or dh.REGION <= t < dh.REGION + len(code), f"bad target @ {hex(i.address)}"
     patch_8051(d)
+    wlen = patch_hal(d)
     out, name = nv.restamp(bytes(d), version, family=b"M-C5500GGZA")
     nv.verify_stock(out, name.filename, family=b"M-C5500GGZA")
     dst = pathlib.Path(stock_path).parent.parent.parent / "builds" / name.filename
@@ -139,6 +224,7 @@ def main(stock_path: str, version: str = VERSION) -> None:
     diff = [i for i in range(len(stock)) if stock[i] != out[i]]
     in8051 = [i for i in diff if SEGA_HDR <= i < SEGA_DATA + 0xFAC0]
     print(f"built {dst}  hook {len(code)}B, {len(diff)} bytes changed ({len(in8051)} in the 8051 record), sum16 {name.tag}")
+    print(f"  HAL worker {wlen}B at SRAM {hex(CRASH)} (entry stub) / {hex(WORKER)} (worker), list {hex(WLIST)}")
     print(f"  8051 changed offsets: {hex(min(in8051))}..{hex(max(in8051))}  GET={hex(get_entry)} SET={hex(set_entry)}")
 
 

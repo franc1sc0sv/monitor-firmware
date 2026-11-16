@@ -745,3 +745,9 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
   placement: inside the crash reporter (keep a minimal "spin -> watchdog reset" stub at its entry), so the record
   size and the boot descriptor stay unchanged. The worker would raise PIL (no interrupts -> no flash fetch), run a
   BSS command list through HAL_mbox / the HAL mailbox writer (both in SRAM), and return.
+- **1021.2 (built)**: 1021.1 + an SRAM flash worker inside the HAL record. The crash reporter entry 0xA002D6B8 (kept:
+  it is an exception-vector target, referenced from record @0x0FC000 file 0x2B89C) becomes `ba .; nop` (spin until
+  the watchdog resets). Worker at 0xA002D6C0 (196 B incl. stub): save; PIL := 15 (no interrupts, so no flash
+  fetches); run the list at BSS 0xA803CA00 (24-byte entries {fn, a0..a4}; fn 0 = end, fn 1 = delay a0 loops, other
+  fn must be in SRAM [0xA0028000, 0xA0031000) or the list stops); result overwrites fn; restore %psr; return 1.
+  Called with F5 (absolute 0xA002D6C0). HAL record diff = crash-reporter bytes + its sum16 only (verified).
