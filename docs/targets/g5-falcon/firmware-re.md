@@ -523,3 +523,13 @@ in the image) and watches its progress. DUALFW first reads TagInfo (`0xAA6B`: fo
 `base + k*0x1000 + 0xFFF`, valid if 0xAA; ValidRegionNext = (current+1) % 2). F190..F19F / F1E0 / F1EB form a shared
 update register block (the SPARC's `USBCop_ConfirmInit` clears F190..F19F). How the SPARC hands control to the
 updater, where the image lands in DRAM, and what the ROM ISP expects are the open questions for a vendor-path flasher.
+
+### 8051 boot bank selection and the region descriptor (confirmed from bytes; bank-B location still inferred)
+Boot entry (flash 0, file 0x40): `mov dptr,#0x7FFF; movc; cjne a,#0xAA` -> offset 0x1000 if the tag is 0xAA, else
+0x0000; then it reads a **descriptor table at 0x6000 + offset** (0x6000 = region A, 0x7000 = region B). The image
+carries only the region-A table (record -> flash 0x6000, 0x60 bytes): big-endian `(u32 flash address, u32 size)`
+pairs — 0x010000/0xFAA7 (8051 runtime), 0x020000/0xC16B (updater), 0x0D0000/0x775C, 0x0FC000/0x2858,
+**0x108000/0x2EB9AC (whole SPARC app)**, 0x050000/0x2FAF0, 0x0A6000/0x1108, 0x030000/0xF9F0, 0x0B0000/0x1CDCC
+(the last two are not in the update image), then 0xFF padding. Activating a new bank therefore means: write its images,
+write its descriptor (0x7000 for region B), verify, and only then flip the tag byte at 0x7FFF — the "tag last" rule of
+the safety protocol maps onto exactly this byte.
