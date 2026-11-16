@@ -327,3 +327,20 @@ a practical DDC flasher for the MAIN firmware infeasible:
    (3.4 MB) or a full backup over DDC would take **days**. The channel isn't suited to MB-scale transfers.
 Recommendation: **consolidate the achieved HDMI control** (memory read/write, call-any-function, read-any-address —
 all validated) and keep **USB** as the firmware-flash path. The DDC flasher is not pursued further.
+
+## REOPENED (Fable strategy): internal flasher, read-only SPI proof first
+Fable's plan reframes the bandwidth wall: the flasher runs AS firmware code in a dead-code cave (code RAM is
+executable-but-RO; BSS is writable but executability unproven -> code stays in the cave, BSS only for data staging),
+triggered by one F5; it copies bank A->B, applies the DDC-staged diff, programs and verifies bank B INTERNALLY (only
+trigger + ~500B diff cross DDC). Preferred write path: compose a raw page-program (0x02) from the firmware's own SPI
+primitives (address-agnostic -> bank B directly). Recovery = stock USB .img + A/B invariant (don't touch bank A or the
+tag until verified). All validated read-only first.
+
+### SPI primitive map (for composing commands via F5, no reflash)
+- `0x15E560(byte)` = send one SPI byte (writes data reg 0x14 via HAL 0xA002EF00, triggers reg 0x13).
+- `0xA002CBD4(reg,..)` = HAL **register READ** (0x1509E8's ready-poll reads reg 0xc until bit0==1). [HAL region, call via
+  the SPARC wrappers, not directly — different relocation than the 0x320 code delta.]
+- Reg `0xc` = SPI control / chip-select (0x40 idle, 0xc0 active); regs `0x13/0x14` = SPI data.
+- `0x1509E8` = CS toggle + wait-ready poll; `0x1509B0` = short CS op.
+Next (read-only, current image): find CS assert/deassert + read-byte SPARC wrappers (or a high-level SPI read fn), then
+drive JEDEC 0x9F / RDSR 0x05 / READ 0x03 via F5 and read results from BSS via F2. A sane JEDEC id proves SPI control.
