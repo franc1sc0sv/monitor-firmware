@@ -234,3 +234,10 @@ select the main-firmware region (bank A/B), not an EEPROM region.
 Do **all** the offline design first and ship **one** bundled image (memory read/write + the DDC flasher's stage/verify
 commands), flashed once by USB; after that, patches apply over DDC (fast). The bank-switch/activate stays a separate,
 explicitly-approved step. The flash-program code may still need 1-2 hardware iterations despite max static checking.
+
+## All-in-one dev image (minimise USB flashes)
+`devtools_hook.py` builds one image (hook in verified-dead `0x1E14EC`, 0x280 bytes) with: memory read (F2) over
+[0x100000,0x2F8000)+BSS, memory write (F4) to BSS, and a **call-any-firmware-function** primitive (F5). Slots in BSS
+at `0xA8039A00`: ADDR +0, TARGET +4, ARG0..3 +8..+0x14, RESULT +0x18, SAVED +0x1C. Load TARGET/ARGs with F4 byte
+writes, trigger with F5, read RESULT with F2. Flashed once by USB, this drives all flasher/8051 experimentation over
+DDC (call erase/program/checksum routines live, read results) — no more USB cycles until the hook itself changes.
