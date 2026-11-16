@@ -643,3 +643,7 @@ Next capture needs a faster watcher (F190/F198/F19B..F19E only, no per-read VCP 
 - **1020.1** runs (version string, F050 = 0x15, slots read 0 except ADDR = 0xA803CFC0, so BSS slots work), but its F4
   guard compared `sethi`-truncated bounds: the slot window collapsed to [0xA803CC00, 0xA803CC00) and F4 wrote nothing.
   **1020.2** loads both bounds with sethi+or (window [0xA803CFC0, 0xA803CFE8), checked in the disassembly).
+- **1020.3** (built, not yet flashed): F2 (byte read) and F5 (call) removed for space; new **F7** = in-chip DRAM scan
+  for the update-file header `\x7FNVT` (ARG0 start line, ARG1 probes, ARG2 stride; RESULT = line or 0xFFFFFFFF; ARG0 =
+  resume line; DELTA = last word), port sequence copied from SPARC 0x1413EC. Host side: `g5-dram-find.ps1`.
+  DDC-side scanning with 1020.2 (`g5-dram-scan.ps1`) costs ~2.6 s per probe.

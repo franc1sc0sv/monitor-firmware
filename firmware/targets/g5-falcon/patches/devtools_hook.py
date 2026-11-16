@@ -49,7 +49,7 @@ assert SPI_LO % 0x400 == 0 and SPI_HI % 0x400 == 0, "SPI bounds are compared wit
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
 WLO, WHI = SLOTS, SLOTS + 0x28         # F4 byte-write window: the slots only
 DRAM_LO, DRAM_HI = 0xCF011F80, 0xCF011FC0  # DRAM access port (second F6 window; see firmware-re.md)
-NEW_VERSION = "1020.2"           # slots out of settings RAM; F6 also reaches the DRAM access port
+NEW_VERSION = "1020.3"           # F2/F5 dropped for space; F7 = in-chip DRAM header scan           # slots out of settings RAM; F6 also reaches the DRAM access port
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 
@@ -92,14 +92,8 @@ def build() -> tuple[int, bytes, int]:
     a = Asm(REGION)
     # ---- GET (F2): read 4 bytes at ADDR, in [RLO,RHI) or [WLO,WHI) ----
     a.label("GET")   # F2 = 4 byte-reads at ADDR ; F3 = one 32-bit word read at ADDR (for MMIO). Read any address.
-    a.ins("cmp %o0, 0xF2"); a.br("be", "GB4"); a.ins("nop")
     a.ins("cmp %o0, 0xF3"); a.br("be", "GW"); a.ins("nop")
     a.br("ba", GETVCP); a.ins("nop")
-    a.label("GB4")
-    a.addr("%g2", ADDR); a.ins("ld [%g2], %g3")
-    for k in range(4): a.ins(f"ldub [%g3+{k}], %g4" if k else "ldub [%g3], %g4"); a.ins(f"stb %g4, [%o1+{k}]" if k else "stb %g4, [%o1]")
-    a.addr("%g2", ADDR); a.ins("add %g3, 4, %g3"); a.ins("st %g3, [%g2]")
-    a.ins("retl"); a.ins("mov 1, %o0")
     a.label("GW")   # 32-bit word load (MMIO needs word access); returns the word big-endian in the 4 reply bytes
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g3"); a.ins("ld [%g3], %g3")   # g3 = word at [ADDR]
     a.ins("srl %g3, 24, %g4"); a.ins("stb %g4, [%o1]")
@@ -113,7 +107,7 @@ def build() -> tuple[int, bytes, int]:
     a.ins("cmp %o0, 0xF0"); a.br("be", "SF0"); a.ins("nop")
     a.ins("cmp %o0, 0xF1"); a.br("be", "SF1"); a.ins("nop")
     a.ins("cmp %o0, 0xF4"); a.br("be", "SF4"); a.ins("nop")
-    a.ins("cmp %o0, 0xF5"); a.br("be", "SF5"); a.ins("nop")
+    a.ins("cmp %o0, 0xF7"); a.br("be", "SF7"); a.ins("nop")
     a.ins("cmp %o0, 0xF6"); a.br("be", "SF6"); a.ins("nop")
     a.br("ba", SETVCP); a.ins("nop")
     a.label("SF0")   # ADDR = (value16<<16) | (ADDR & 0xFFFF)
@@ -131,15 +125,33 @@ def build() -> tuple[int, bytes, int]:
     a.addr("%g2", WHI); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND"); a.ins("nop")
     a.ins("stb %g4, [%g5]"); a.addr("%g2", ADDR); a.ins("add %g5, 1, %g5"); a.ins("st %g5, [%g2]")
     a.label("SEND"); a.ins("retl"); a.ins("mov 1, %o0")
-    a.label("SF5")   # call TARG(arg0..arg3) with the code relocated at runtime; RESULT = return value
-    a.addr("%g2", SAVED); a.ins("st %o7, [%g2]")           # save hook return (pccall below clobbers %o7)
-    a.label("PCM"); a.pccall(); a.ins("nop")               # %o7 = runtime addr of PCM
-    a.loadva("%g1", "PCM"); a.ins("sub %o7, %g1, %g4")     # %g4 = delta = runtime(PCM) - file VA(PCM)
-    a.addr("%g2", TARG); a.ins("ld [%g2], %g1"); a.ins("add %g1, %g4, %g1")   # target_runtime = file VA + delta
-    a.ins("ld [%g2+4], %o0"); a.ins("ld [%g2+8], %o1"); a.ins("ld [%g2+0xC], %o2"); a.ins("ld [%g2+0x10], %o3")
-    a.ins("jmpl %g1, %o7"); a.ins("nop")                   # call target
-    a.addr("%g2", RESULT); a.ins("st %o0, [%g2]")          # store return value
-    a.addr("%g2", SAVED); a.ins("ld [%g2], %o7")           # restore hook return
+    a.label("SF7")   # in-chip DRAM scan: from line ARG0, ARG1 probes, stride ARG2 (32-byte lines); stops at the first
+    # line whose first 4 bytes are "\x7FNVT" (update-file header). RESULT = that line or 0xFFFFFFFF; ARG0 = resume line;
+    # DELTA = last word read. Port sequence mirrors SPARC 0x1413EC (A4/A8/AC, F84, F8C, wait F90, A0, 4x F94).
+    a.addr("%g2", ARG0); a.ins("ld [%g2], %o2"); a.ins("ld [%g2+4], %o3"); a.ins("ld [%g2+8], %o4")
+    a.ins(f"sethi {_hi(0xCF011C00)}, %g1"); a.ins("mov -1, %o5")                 # o5 = result (not found)
+    a.label("S7L")
+    a.ins("cmp %o3, 0"); a.br("be", "S7N"); a.ins("nop")
+    a.ins("srl %o2, 8, %g3"); a.ins("st %g3, [%g1+0x3A4]")
+    a.ins("srl %o2, 16, %g3"); a.ins("st %g3, [%g1+0x3A8]")
+    a.ins("srl %o2, 24, %g3"); a.ins("st %g3, [%g1+0x3AC]")
+    a.ins("mov 0x80, %g3"); a.ins("st %g3, [%g1+0x384]"); a.ins("st %g3, [%g1+0x38C]")
+    a.ins("sethi 1, %g4")                                   # <= 0x400 polls of F90
+    a.label("S7W")
+    a.ins("ld [%g1+0x390], %g5"); a.ins("and %g5, 0xFF, %g5"); a.ins("cmp %g5, 0x80"); a.br("be", "S7R"); a.ins("nop")
+    a.ins("subcc %g4, 1, %g4"); a.br("bne", "S7W"); a.ins("nop")
+    a.label("S7R")
+    a.ins("st %o2, [%g1+0x3A0]")
+    a.ins("mov 4, %g2")                                     # 4 bytes; 4 shifts by 8 flush g4, no clear needed
+    a.label("S7B")
+    a.ins("ld [%g1+0x394], %g5"); a.ins("and %g5, 0xFF, %g5"); a.ins("sll %g4, 8, %g4"); a.ins("or %g4, %g5, %g4")
+    a.ins("subcc %g2, 1, %g2"); a.br("bne", "S7B"); a.ins("nop")
+    a.addr("%g5", 0x7F4E5654); a.ins("cmp %g4, %g5"); a.br("be", "S7F"); a.ins("nop")
+    a.ins("add %o2, %o4, %o2"); a.ins("sub %o3, 1, %o3"); a.br("ba", "S7L"); a.ins("nop")
+    a.label("S7F")
+    a.ins("mov %o2, %o5")
+    a.label("S7N")
+    a.addr("%g2", ARG0); a.ins("st %o2, [%g2]"); a.ins("st %o5, [%g2+0x10]"); a.ins("st %g4, [%g2+0x18]")  # ARG0, RESULT, DELTA
     a.ins("retl"); a.ins("mov 1, %o0")
     a.label("SF6")   # write 32-bit VALW to [ADDR], only if ADDR is in the SPI controller MMIO window
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g5")            # g5 = target MMIO addr
