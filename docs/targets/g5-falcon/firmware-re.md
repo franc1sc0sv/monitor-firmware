@@ -150,6 +150,25 @@ custom injected code runs on the G5 and answers over HDMI — the foundation for
 reply bytes come back as MH:ML:CH:CL = `EF DE BE AD`, i.e. the buffer at `%o1` maps to the reply fields in the order
 `[+3][+1][+2][+0]` (to pin down exactly from a stock handler's buffer-fill before the memory-read feature).
 
+### Set VCP path (for F0/F1 address and F4 write)
+
+In `sub_103DBC`, the Set VCP packet is on the stack: `[%fp-0x2e]`=opcode(03), `[%fp-0x2d]`=code,
+`[%fp-0x2c]`=value high, `[%fp-0x2b]`=value low. General codes (`code != 2`) reach `DddCmdSetVcp` via the
+**`call 0x1869BC` at VA `0x104170`** (`%o0`=code, `%o1`=`%fp-0x2f`). Redirecting that call to a Set hook (reading the
+value from `%fp`) adds F0/F1/F4, branching to the real `DddCmdSetVcp` for all other codes. `retl` returns to
+`%o7+8 = 0x104178` (the dispatcher's result check `andcc %o0,0xff`).
+
+### Memory read/write command set (F0/F1/F2/F4), scratch in the cave
+
+- **Scratch**: a 4-byte current-address pointer in the free tail of the cave (after the ~52-byte hook; the PDIC stub
+  is 0x90 and the adjacent `0x1E4510` stub adds 0x40). First hardware run also confirms code-RAM is writable; if not,
+  fall back to a data-region scratch.
+- **Set F0** `addr = (addr & 0xFFFF) | (value16 << 16)`; **Set F1** `addr = (addr & 0xFFFF0000) | value16`.
+- **Get F2** read 4 bytes at `addr`, place in the reply buffer, `addr += 4`.
+- **Set F4** write `value_low` byte at `addr`, `addr += 1`.
+- Range-guard the address to the safe RAM window before dereferencing (mirror the LC34's `0x200000..0x7fffff`-style
+  guard, adjusted to the G5 map) so a bad read/write can't touch MMIO.
+
 ### For the real memory-read step (after the proof)
 
 - **Scratch RAM** for the current address (LC34 used its RAM block): locate a few unused runtime bytes
