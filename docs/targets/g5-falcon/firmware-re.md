@@ -197,3 +197,20 @@ Reply byte order (confirmed): the 4 reply bytes map `mem[0]=CL, mem[1]=ML, mem[2
 The write *mechanism* is proven (F0/F1 write the BSS scratch). To make F4 useful, restrict it instead to a **safe
 writable** region (BSS/settings), not the code region — next refinement. Writes to flash (the DDC flasher) go through
 the firmware's SPI driver, not direct RAM stores.
+
+## DDC flasher — leads (update A: write bank B; update B: activate)
+
+Flash-related SPARC functions found in the catalog (names from debug-symbol anchors; map directly to our image):
+
+| Symbol | VA | Note |
+|---|---|---|
+| `SYSAPI_EraseUSRFlashType2` | `0x1720B8` | flash erase (user region) — candidate for bank-B erase |
+| `SecLibCommon_GetRomChecksum` | `0x18B9F4` | reads a ROM/flash checksum — useful to verify a written bank over DDC |
+| `SecHalUserData_SaveDiffToEEPROM` | `0x124A20` | EEPROM settings writer |
+| `SecLibUserData_SaveDiffToEEPROM` | `0x1B5ECC` | EEPROM settings writer |
+| `SecAppOsd_DisplayUSBUpdate*` | `0x1D2018`, `0x1E07F0`, `0x1D24B8` | USB-update OSD (version/now/error) — near the real flash-program path |
+
+Most of the SPI flash *program* path is in the 8051 USB updater (record 2); the SPARC app exposes erase/checksum.
+Next: disassemble `SYSAPI_EraseUSRFlashType2` and trace the program/page-write routine it pairs with, and the A/B
+bank layout, to build a DDC command that streams an image to the inactive bank (via these routines) + a verify
+(checksum read-back over DDC), then a separate activate command. High risk — staged and validated before any switch.
