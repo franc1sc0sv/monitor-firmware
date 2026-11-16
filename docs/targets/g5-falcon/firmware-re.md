@@ -618,3 +618,14 @@ checksum + ConfirmInit sequence. Still unknown: the staging line address and the
 ConfirmInit (it normally loaded the file itself, status 0x97). Fastest way to learn both: poll F190..F19F (+ F1E0)
 over DDC during a real USB update of the **same** 1019.0 image (needs the user's in-session OK; it is a real flash
 through the vendor path).
+
+### First USB-update capture over DDC (2026-11-16, user-run update to 1019.1)
+1019.1 = 1019.0 with only the version digit changed (one byte, file 0x273369; the 1019.0 rebuild reproduces the flashed
+hash). `g5-watch-update.ps1` (~3 s per register cycle) logged:
+- stick with **1019.0** (same version): F19A..F19D = `2E 69 6D 67` (".img", file-name bytes reported by the USB Cop),
+  F1E0 = 0x02, 0xCF011F80 0x81 -> 0x80, F190 = 0x96 -> 0x82; no update (refused as same version), DDC kept working.
+- stick with **1019.1**: F190 = 0x96, file-name bytes again in F19C, 0xCF011F80 0x00 -> 0x80, F1E0 -> 0x02, then **DDC
+  silent ~65 s** (load + ISP + reboot), then everything back to 0 and 0xCF011F80 = 0x81 (fresh boot). The running
+  firmware string now reads **"1019.1"** at data VA 0x245664 (confirmed: update worked, hook alive).
+Not caught: the file location/size words (the cycle is too slow; F19B..F19E carried name bytes while sampled).
+Next capture needs a faster watcher (F190/F198/F19B..F19E only, no per-read VCP flush once the monitor is known live).
