@@ -49,3 +49,15 @@ function RunList([object[]]$calls) {
   }
   , $out
 }
+# 1021.2+: SRAM flash worker. Same entry format as RunList, but every fn must be an SRAM (HAL) address, or 1 = delay.
+$script:WORKER = [Convert]::ToUInt32('A002D6C0', 16); $script:WLIST = [Convert]::ToUInt32('A803CA00', 16)
+function RunWorker([object[]]$calls) {
+  $buf = New-Object System.Collections.Generic.List[byte]
+  foreach ($c in $calls) { for ($k = 0; $k -lt 6; $k++) { $v = 0; if ($k -lt $c.Count) { $v = [UInt64]$c[$k] }; $buf.AddRange((BytesOf $v)) } }
+  $buf.AddRange((BytesOf 0))
+  Up $script:WLIST $buf.ToArray()
+  $ret = Call $script:WORKER @()
+  $out = @($ret)
+  for ($i = 0; $i -lt $calls.Count; $i++) { $out += (RdWF ([UInt32]($script:WLIST + 24 * $i))) }
+  , $out
+}
