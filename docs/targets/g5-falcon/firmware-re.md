@@ -305,3 +305,14 @@ set). The low-level helpers wrap these with CS toggling (0x1509B0/E8) and a byte
 via the 0xA002xxxx HAL). Driving raw SPI register-by-register over DDC is possible but fragile/risky, so prefer the
 firmware's own high-level flash routines (addr+buf+len) used by the USB updater — to be located next (SPARC update
 data dispatch 0x18E274 / external-FW wrapper, or an 8051 program routine).
+
+## Flash is NOT memory-mapped (hardware-confirmed 2026-11-15)
+Over the 1018.0 (read-any) hook, probed candidate flash windows (0x0, 0x04/08/10/20/40/80/A0/B0/C0/D0/E0/F0 000000):
+none show the NVTSC magic; mostly 0x00/0xFF (0xA0000000 = RAM, 0xD0000000 = MMIO). So the SPI flash is not readable by
+a plain memory read — we must drive the SPI controller. The controller regs at 0xCF03Cxxx read 0 via byte loads (MMIO
+likely needs 32-bit word access). Reads of unmapped addresses were safe (no hang).
+
+Path chosen (safer): drive SPI by **calling the firmware's register functions over DDC** (0x126A2C writes a reg;
+find its read counterpart) rather than hand-poking MMIO. Decode the SPI command sequence (CS, opcode, address, data,
+status) starting with a read-only JEDEC (0x9F) / RDSR (0x05) proof, then flash read (backup/verify), then bank-B
+erase/program under the address guard.
