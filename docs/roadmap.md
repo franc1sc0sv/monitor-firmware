@@ -1,10 +1,15 @@
 # Roadmap and open work
 
-State on 2026-11-15: LC34G55T runs v3.1 (protocol 2). Client 0.3.0 with HTTP API and UI. Both monitors were left on
-DisplayPort at the end of the session.
+State on 2026-11-16: LC34G55T runs v3.1 (protocol 2). Client 0.3.0 with HTTP API and UI (single monitor). The 32"
+G5 FALCON is **bricked** (DDC flasher incident, 2026-11-16) and waits for SPI-programmer recovery. Next focus: the
+two-monitor / two-computer integration with Tandem — plan in `docs/integration/tandem.md`.
 
 ## Next
 
+- **Now — Tandem integration** (`docs/integration/tandem.md`): monitor profiles (data), runtime driver probe, `/api/monitors`,
+  per-monitor SSE, hot-plug, two-monitor simulator. Built so the repaired G5 joins with only a profile edit.
+- **Now — G5 recovery**: CH341A + clip on IC901, read the full 8 MB first (permanent backup), repair only what the dump
+  shows (`firmware-re.md`, section INCIDENT). No flash write without the user's OK in the moment.
 1. **Settings map**: map the remaining OSD items (refresh rate, game mode, response time, adaptive sync, eye saver,
    black equalizer, off timer, power LED...). Static route: follow the menu engine (`0x284884`, apply table
    `0x378810`, OSD text tables). Dynamic route: `map-setting` skill with the UI's settings grid.
@@ -12,7 +17,8 @@ DisplayPort at the end of the session.
    shadow, i.e. a 3 KB block, and a cave size pass).
 3. **Name events**: system-state values, "manual vs DDC" input change classification in the client.
 4. **Energy cap**: event when the backlight source switches to the cap; client command to toggle VCP F7.
-5. **Identity/capability read** and `--monitor` selector (ADR-0018) before patching a second monitor.
+5. **Identity** (ADR-0018): covered client-side by EDID-hash monitor ids in the Tandem plan; a firmware identity read
+   is optional later.
 6. **Odyssey G5 ("FALCON")**: tested 2026-11-15 on a direct HDMI link to the AMD iGPU: DDC/CI works, but nothing
    answers at 0x49 (MStar ISP) or 0x59 (SERDB); the bus only ACKs 0x30, 0x37, 0x3A, 0x50, 0x54 (confirmed). The unit
    reports 2560x1440 @ 165 Hz, 70x40 cm, EDID product `7489` (DP) / `748A` (HDMI). Public research on the LS32CG552

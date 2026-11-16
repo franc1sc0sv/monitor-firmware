@@ -1,5 +1,10 @@
 # Samsung Odyssey G5 "FALCON": current state
 
+> **Status 2026-11-16: bricked** (no LED, no EDID/DDC) after a DDC sector job most likely erased the active bank's
+> 8051 runtime sector `0x01F000`, followed by a reboot. Recovery: SPI programmer (CH341A + SOIC-8 clip) on IC901
+> (Winbond W25Q64JV, 8 MB, 3.3 V, bottom side of BN41-03194A), read the full chip first, then repair only the damaged
+> range. Details: `firmware-re.md`, section "INCIDENT". How it rejoins the setup: `docs/integration/tandem.md` §4.
+
 Second monitor. Unlike the LC34G55T (MStar MST9U, fully controlled), this is a **Novatek NT68500** platform and the
 MStar patch/ISP tooling does not port. This page is the single source of truth for it; evidence trail is inline.
 Confidence per ADR-0001.
