@@ -35,13 +35,18 @@ f = lambda va: va + CODE_SHIFT
 GETVCP, SETVCP = 0x1882AC, 0x1869BC
 GET_CS, SET_CS = 0x103EBC, 0x104170
 REGION = 0x1E14EC                      # verified-dead, 0x280 bytes
-SLOTS = 0xA8039A00                     # writable BSS
+RELOC = 0x320                          # code runs at file VA + 0x320 (hardware-confirmed delta)
+CODE_MAX = 0x258                       # hook code budget; the region tail holds the slots
+# 1020.0: slots live in the tail of the verified-dead hook region (runtime address). The 1019.x slots at 0xA8039A00 sat
+# inside a live settings table (hardware-confirmed 2026-11-16), so every SetAddr / F4 corrupted settings RAM.
+SLOTS = REGION + RELOC + CODE_MAX
 ADDR, TARG, ARG0, RESULT, SAVED, DELTA = SLOTS, SLOTS + 4, SLOTS + 8, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x20
 VALW = SLOTS + 0x24                    # 32-bit value staged for the F6 word-write
 SPI_LO, SPI_HI = 0xCF03C000, 0xCF03D000  # SPI controller MMIO window (F6 word-write guard)
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
-WLO, WHI = 0xA8034000, 0xA803C400      # read+write window (BSS)
-NEW_VERSION = "1019.0"           # add F3 word-read + F6 word-write to SPI MMIO
+WLO, WHI = SLOTS, SLOTS + 0x28         # F4 byte-write window: the slots only
+DRAM_LO, DRAM_HI = 0xCF011F80, 0xCF011FC0  # DRAM access port (second F6 window; see firmware-re.md)
+NEW_VERSION = "1020.0"           # slots out of settings RAM; F6 also reaches the DRAM access port
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 
@@ -126,7 +131,6 @@ def build() -> tuple[int, bytes, int]:
     a.addr("%g2", SAVED); a.ins("st %o7, [%g2]")           # save hook return (pccall below clobbers %o7)
     a.label("PCM"); a.pccall(); a.ins("nop")               # %o7 = runtime addr of PCM
     a.loadva("%g1", "PCM"); a.ins("sub %o7, %g1, %g4")     # %g4 = delta = runtime(PCM) - file VA(PCM)
-    a.addr("%g2", DELTA); a.ins("st %g4, [%g2]")           # expose delta for diagnostics
     a.addr("%g2", TARG); a.ins("ld [%g2], %g1"); a.ins("add %g1, %g4, %g1")   # target_runtime = file VA + delta
     a.ins("ld [%g2+4], %o0"); a.ins("ld [%g2+8], %o1"); a.ins("ld [%g2+0xC], %o2"); a.ins("ld [%g2+0x10], %o3")
     a.ins("jmpl %g1, %o7"); a.ins("nop")                   # call target
@@ -135,12 +139,16 @@ def build() -> tuple[int, bytes, int]:
     a.ins("retl"); a.ins("mov 1, %o0")
     a.label("SF6")   # write 32-bit VALW to [ADDR], only if ADDR is in the SPI controller MMIO window
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g5")            # g5 = target MMIO addr
+    a.addr("%g2", DRAM_LO); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "W6SPI"); a.ins("nop")
+    a.addr("%g2", DRAM_HI); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "W6GO"); a.ins("nop")
+    a.label("W6SPI")
     a.ins(f"sethi {_hi(SPI_LO)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "SEND6"); a.ins("nop")
     a.ins(f"sethi {_hi(SPI_HI)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND6"); a.ins("nop")
+    a.label("W6GO")
     a.addr("%g2", VALW); a.ins("ld [%g2], %g4"); a.ins("st %g4, [%g5]")   # *ADDR = VALW (32-bit)
     a.label("SEND6"); a.ins("retl"); a.ins("mov 1, %o0")
     code = a.assemble()
-    assert len(code) <= 0x280, f"hook ({len(code)}B) overruns the dead region"
+    assert len(code) <= CODE_MAX, f"hook ({len(code)}B) overruns its budget (slots follow at {hex(SLOTS)})"
     return a.labels["SET"], code, a.labels["GET"]
 
 
