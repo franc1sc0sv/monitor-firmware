@@ -258,3 +258,11 @@ whole-file check marker of the stock image. Confirms the call primitive works on
 applied, return captured); stock VCPs unaffected. Note GetRomChecksum returns the stored marker, not a live sum, so
 a live-verify for the flasher will need to compute over the written bank instead. Next flasher steps (erase/program)
 are flash writes -> gated on explicit user go-ahead.
+
+### Flash driver chain mapped (for the DDC flasher)
+Storage descriptor table (0x204158) only holds EEPROM regions (DG_EEPROM1, OPR_EEPROM_1/2/3) — not the main
+firmware. The SPI driver chain is: `SYSAPI_EraseUSRFlashType2` (0x1720B8) -> flash-op primitive `0x16892C` -> raw SPI
+`0x1509E8` -> **platform services at 0xA002xxxx** (the HAL that pokes the SPI hardware; same region as the UART/other
+services). To write bank B from the SPARC we must drive this chain (or the raw SPI) at a bank-B address rather than
+via the EEPROM descriptors. Next (offline): decode the 0xA002xxxx SPI service args (register/opcode/data) to see if a
+raw page-program at an arbitrary address is callable. Any actual flash write is gated on explicit user go-ahead.
