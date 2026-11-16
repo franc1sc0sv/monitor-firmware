@@ -389,3 +389,18 @@ is a separate dispatcher at **0x126C74** (`reg_read(idx)`, table at VA 0x1268C0)
 then idx 0x13 (trigger). Next: decode `reg_read` (0x126C74) to name the RX/status reg, OR (safer) drive the firmware's
 own flash-read routine (GetRomChecksum 0x18B9F4 already reads flash over DDC via F5, returning 0xC145) to read
 JEDEC/backup bytes into a RAM buffer, then F2-read the buffer. No flash write has been issued; all work read-only.
+
+### Correction to earlier SPI inferences (hand-decode, 2026-11-15)
+Decoding the SPI stack from the flat image revealed the earlier record inferences were partly wrong:
+- `reg_op` (0x126A2C) is **write-only** (stores v1,v2 to mirror regs, returns %o0=idx unchanged). The "ready poll"
+  in `0x1509E8` therefore **never reads a status bit** — it compares reg_op's return (the idx 0xc) to 1, never equal,
+  so it is just a fixed ~9-iteration delay loop of CS toggles, not a poll. The `reg_read` dispatcher at 0x126C74
+  returns **constants** per idx (no MMIO load), so it is not the RX path either.
+- `0x15E560` ("send byte") does `reg_op(0x14,0,0)` then `reg_op(0x13,0,2)` — the data byte (o3) is **not** passed to
+  reg_op as decoded, so its exact data path is unclear by hand-decode.
+- `0x16892C`/`0x1689FC` are **descriptor-table-driven** storage ops (region table at 0x810158, 0x26-byte entries),
+  not a general (addr,buf,len) flash read/write.
+Conclusion: the low-level SPI transaction must be decompiled in **Ghidra** (clean decomp of the TX/CS/RX registers)
+before a JEDEC/RDSR read-only proof or any SPI-register-driven write can be composed reliably. Hand-decode is
+error-prone here. The NEW, solid capability this session is **reliable 32-bit MMIO read of the SPI controller over
+DDC (F3)** — enough to observe the engine; the write/trigger sequence is the remaining unknown.
