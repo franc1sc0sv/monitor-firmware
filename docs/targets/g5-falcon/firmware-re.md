@@ -493,3 +493,33 @@ Ready-to-run read-only proof for a supervised session: F5 `MailBox_LoadFE2P(0, n
   hardware write block (flash reachable only through the 8051), but **unconfirmed** until F6 is positively tested on a
   benign SPARC-writable register (the obvious GPIO candidates include the flash write-protect line — not touched
   unattended). No flash command was issued (by construction the engine could only have sent 0x9F/0x05).
+
+### Container record table and flash map (confirmed from bytes, 2026-11-16)
+Each record has a 32-byte header right before its data: `u16 f0, u16 f1, u32 size, u32 checksum, 0x04000000, 16x 00`.
+`(f0<<16)|f1` is the **flash destination** (the SPARC code record gives 0x108000, the known target). For the 8051 and
+small records the checksum is the **sum16 of the record data** (verified for all 8; the SPARC records carry 0xFFFFFFFF).
+A patched record must update this per-record checksum as well as the whole-file sum16 / filename tag.
+
+| Header | Flash dest | Size | Content |
+|---|---|---|---|
+| 0x000020 | 0x000000 | 0x8000 | 8051 **boot** (checks A/B tag at flash 0x7FFF == 0xAA, picks bank) |
+| 0x008040 | 0x010000 | 0xFAC0 | 8051 **runtime** ("segment A": mailbox, FE2P, SPI engine) |
+| 0x017B20 | 0x020000 | 0xC180 | 8051 **USB updater** ("segment B": CMD_LOADFILE2DRAM / START_ISP_ROMCODE_MODE(_DUALFW), TagInfo) |
+| 0x023CC0 | 0x0D0000 | 0x7760 | unknown |
+| 0x02B440 | 0x0FC000 | 0x2860 | unknown |
+| 0x02DCC0 | 0x108000 | 0x1F0000 | SPARC code |
+| 0x21DCE0 | 0x2F8000 | 0xFB9C0 | SPARC data |
+| 0x3196C0 | 0x050000 | 0x2FB00 | unknown |
+| 0x3491E0 | 0x0A6000 | 0x1120 | unknown |
+| 0x34A320 | 0x006000 | 0x60 | small block inside the boot sector (config / shared structure?) |
+Everything sits below 0x400000, consistent with a second bank at 0x400000 (still inferred).
+
+### USB updater ("segment B", flash 0x20000) — what it does (confirmed by disassembly)
+Command byte at its XDATA 0x08E8, status at 0x08E7: `0x46` CMD_LOADFILE2DRAM (`0x7B97`, status 0x97 = loaded),
+`0x16` CMD_START_ISP_ROMCODE_MODE / `0x17` ..._DUALFW -> `0x8656(0x10 / 0x11)`, then it **polls register F19A**
+(bits 0..2 = stage 1..4 -> status 0xC1..0xC4, `&0x8F == 0x8F` = done), status 0x99, and parks in a self-loop. So the
+8051 **does not program the flash itself** in an update: it starts a **ROM-code ISP** (the chip mask ROM, not present
+in the image) and watches its progress. DUALFW first reads TagInfo (`0xAA6B`: for region k in {0,1}, read flash at
+`base + k*0x1000 + 0xFFF`, valid if 0xAA; ValidRegionNext = (current+1) % 2). F190..F19F / F1E0 / F1EB form a shared
+update register block (the SPARC's `USBCop_ConfirmInit` clears F190..F19F). How the SPARC hands control to the
+updater, where the image lands in DRAM, and what the ROM ISP expects are the open questions for a vendor-path flasher.
