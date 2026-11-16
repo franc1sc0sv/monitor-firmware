@@ -266,3 +266,23 @@ firmware. The SPI driver chain is: `SYSAPI_EraseUSRFlashType2` (0x1720B8) -> fla
 services). To write bank B from the SPARC we must drive this chain (or the raw SPI) at a bank-B address rather than
 via the EEPROM descriptors. Next (offline): decode the 0xA002xxxx SPI service args (register/opcode/data) to see if a
 raw page-program at an arbitrary address is callable. Any actual flash write is gated on explicit user go-ahead.
+
+## DDC flasher — SAFETY PROTOCOL (hard rules, user-approved 2026-11-15)
+Bank-B approach; the active-slot tag is always the LAST write. Rules, in order:
+1. **Full SPI-flash backup over DDC before ANY write**, read-only (via memory-read / call-any-function). Store under
+   `data/` (NEVER commit). Verify: read twice, hashes must match; sanity-check against stock `1008.3[C145]` for the
+   regions that must be identical. The backup must be restorable with an external CH341A + SOIC-8 clip in a worst-case
+   brick.
+2. Re-take/verify the backup before every write session (or confirm the existing one still matches).
+3. Prove the SPI path with **read-only ops first** (JEDEC id, read status register, read back known bytes) before any
+   erase/program.
+4. **Hard address guard**: refuse any erase/program outside **bank B**. Never touch the boot / 8051 / USB-updater
+   region, the A/B active-slot tag, or the SPI status/write-protect bits — except the final activation write.
+5. Verify bank B by checksum/readback against the intended image **before** writing the active-slot tag (always last).
+6. Every real flash write needs the user's explicit OK **in the moment**.
+Fallback rescue: the stock `.img` flashed over USB.
+
+### Phase 1 (now, read-only): build flash-read-over-DDC + full backup
+Need a way to read the raw SPI flash over DDC: either the flash is memory-mapped (read directly, may need widening the
+read guard) or call a firmware SPI-read routine into a RAM buffer, then memory-read the buffer. Then dump all 8 MB and
+verify. All read-only.
