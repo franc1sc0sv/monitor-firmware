@@ -176,3 +176,24 @@ value from `%fp`) adds F0/F1/F4, branching to the real `DddCmdSetVcp` for all ot
 - **SPARC ABI for the hook**: the hook is entered at the Get call site with `%o0`=code, `%o1`=reply buf; it may use
   `%o2..%o5`/`%g1..%g4` freely (caller-saved), must preserve the caller's `%i*`/`%l*`, and ends by either returning a
   value in `%o0` or branching to the real handler. No `save` needed if it stays in the caller's window.
+
+## MEMORY READ VALIDATED ON HARDWARE (2026-11-15)
+
+Image `M-C5500GGZA-1014.0[AE6F]` (memory_hook.py). Over DDC/CI: Set VCP `0xF0/0xF1` set the address, Get VCP `0xF2`
+reads 4 bytes (auto-advancing +4). Reading `0x245658` returned `M-C5500GGZA-1014.0` byte-for-byte; stock `0x10`
+unchanged. **Arbitrary firmware-memory read over HDMI works — LC34 parity.**
+
+Two runtime facts learned the hard way (both via hardware debug builds):
+- **The code region (0x100000..0x2F8000) is READ-ONLY at runtime** (the firmware never stores there). Scratch must
+  live in writable BSS.
+- **The main app is relocated at runtime**, so absolute references into the code region are invalid (PC-relative
+  branches/calls still work). The address scratch is therefore in BSS at `0xA8039A00`, addressed absolutely like the
+  firmware's own `0xA80xxxxx` state (those resolve correctly).
+
+Reply byte order (confirmed): the 4 reply bytes map `mem[0]=CL, mem[1]=ML, mem[2]=CH, mem[3]=MH`.
+
+### F4 (write) — guard needs widening
+`F4` currently guards writes to `[0x100000,0x2F8000)`, which is the read-only code region, so its writes are no-ops.
+The write *mechanism* is proven (F0/F1 write the BSS scratch). To make F4 useful, restrict it instead to a **safe
+writable** region (BSS/settings), not the code region — next refinement. Writes to flash (the DDC flasher) go through
+the firmware's SPI driver, not direct RAM stores.
