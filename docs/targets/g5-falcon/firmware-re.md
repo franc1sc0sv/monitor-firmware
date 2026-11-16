@@ -241,3 +241,13 @@ explicitly-approved step. The flash-program code may still need 1-2 hardware ite
 at `0xA8039A00`: ADDR +0, TARGET +4, ARG0..3 +8..+0x14, RESULT +0x18, SAVED +0x1C. Load TARGET/ARGs with F4 byte
 writes, trigger with F5, read RESULT with F2. Flashed once by USB, this drives all flasher/8051 experimentation over
 DDC (call erase/program/checksum routines live, read results) — no more USB cycles until the hook itself changes.
+
+## ALL-IN-ONE DEV IMAGE VALIDATED (2026-11-15) — memory r/w + call-any-function over DDC
+Image `M-C5500GGZA-1017.0[B4B8]` (devtools_hook.py). Over DDC: memory read (data at VA), memory write (BSS), and the
+**F5 call primitive returns 1** for the safe target — i.e. we can invoke any firmware function with args and read its
+return value, entirely over HDMI. Key runtime fact: **the code region runs relocated by delta = 0x320** (runtime =
+file VA + 0x320); the hook measures delta with a PC-relative call and adds it to the target, so targets are passed as
+file VAs. Data and BSS are at their VAs. This image drives the rest of the flasher work over DDC (invoke
+erase/checksum/8051 paths live), so no more USB flashes until the hook itself changes.
+
+Slot map (BSS 0xA8039A00): ADDR+0, TARG+4, ARG0..3 +8..+0x14, RESULT+0x18, SAVED+0x1C, DELTA+0x20.
