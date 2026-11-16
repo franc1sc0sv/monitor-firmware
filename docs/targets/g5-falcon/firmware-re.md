@@ -751,3 +751,15 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
   fetches); run the list at BSS 0xA803CA00 (24-byte entries {fn, a0..a4}; fn 0 = end, fn 1 = delay a0 loops, other
   fn must be in SRAM [0xA0028000, 0xA0031000) or the list stops); result overwrites fn; restore %psr; return 1.
   Called with F5 (absolute 0xA002D6C0). HAL record diff = crash-reporter bytes + its sum16 only (verified).
+
+### 1021.2 on hardware (2026-11-16)
+- **SRAM worker works**: F5 -> 0xA002D6C0 with a delay list returns 1, no reset (runs from SRAM with PIL 15).
+- **cmd 0x12 read still resets the whole chip inside the worker**, also with: base moved or not; the SPI-engine
+  registers restored by 8051 POKEs right after the read (idle snapshot: F0E6=05 F0EA=00 F0EC/ED=11/08
+  F0F0..F2=0A 60 00 F0F4=03 F1C0=00 F050=15); the firmware lock 0x1509E8 called via F5 before and 0x1509B0 after.
+  So the SPARC XIP collision hypothesis is **refuted** (the SPARC was in SRAM with interrupts off).
+- HAL mailbox writer 0xA002C80C(0, off, ptr, 1) returns 1 but does not change the SPARC-visible word at
+  0x9F0A0100+off -> not usable as a breadcrumb (wrong bank/semantics). Mailbox +0x14..+0xA4 hold live DDC/CI frames.
+- Remaining hypotheses: the 8051 read loop never completes (engine/arbiter) and the chip watchdog fires; or the
+  reset is a deliberate reaction to the FE2P-load reply. Next: compare with the firmware's boot-time LoadFE2P call
+  site (caller 0x169168) and decode what the 8051 does after the read (0xC912 / 0xF629 / 0xE220 / 0x2BBC).
