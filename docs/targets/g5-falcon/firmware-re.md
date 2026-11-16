@@ -472,3 +472,24 @@ code). Realistic flasher routes, in order of preference:
 3. Direct SPARC access to the 8051 SPI controller registers (XDATA F1C0..) if a SPARC-visible alias exists (unproven).
 Ready-to-run read-only proof for a supervised session: F5 `MailBox_LoadFE2P(0, n)` then F3 read of 0x9F0A01B0
 (checksum) — not run unattended because its effect on the 8051's in-RAM settings copy is not fully known.
+
+### 8051 register page is visible to the SPARC; the SPI command engine (confirmed / negative result, 2026-11-16)
+- **Mapping (confirmed):** 8051 XDATA register `X` (page 0xF000..) appears to the SPARC at `0xCF000000 + X*4`
+  (byte register, 32-bit access). Evidence: SPARC `USBCop_ConfirmInit` clears `((0xF190+i)*4)|0xCF000000`; DDC reads
+  give XDATA F050=0x15 and F0DD=0x04 at 0xCF03C140 / 0xCF03C374, consistent with the 8051 main() logic. So the
+  "SPI controller at 0xCF03Cxxx" of earlier notes is the 8051's register page F000..F3FF. The 8051's **RAM**
+  (0x3000, 0xA4xx, 0xA7xx) is **not** visible there (reads 0).
+- **SPI command engine (from 8051 0xEE5D / 0xE876 / read 0x8145):** F0E5 start (1 = opcode only from F0EE, 2 = opcode
+  from F0EA + read phase; busy while bit0/bit1), F0E6 mode (`&0x0C | 0x41` command, `|0x01` read), F0EB..ED address,
+  F0F4 read config (7 status read, 0x0B data read), F0EF result byte, F1C0 data-buffer control (0x81 capture, 0x82
+  read-out). Read opcode chosen at boot from F050: 0x0B / 0x3B / **0x6B (quad, active: F050 bit2=1)**. The SPARC app and
+  HAL never reference these registers.
+- **Read-only JEDEC attempt via the 1019.0 hook (`tools/windows/experiments/g5/g5-spi-id.ps1`):** replicated 0xE876
+  with opcode 0x9F/0x05 under hard guards (register allowlist, F0EE never written, F0E5 only 2, staged values read back,
+  originals restored). Result: F0EF stayed at its prior value 0x08 for every op; restore left all registers identical.
+  Follow-up: F6 writes of 0x05 to F0EA and 0x07 to F0F4 do not change their read-back, although the 1019.0 F6 handler is
+  correct in the flashed binary (guard [0xCF03C000,0xCF03D000), `st VALW,[ADDR]`) and the dispatcher does not filter
+  code 0xF6. **Conclusion: SPARC stores to the 8051 SPI-engine registers have no visible effect** — most likely a
+  hardware write block (flash reachable only through the 8051), but **unconfirmed** until F6 is positively tested on a
+  benign SPARC-writable register (the obvious GPIO candidates include the flash write-protect line — not touched
+  unattended). No flash command was issued (by construction the engine could only have sent 0x9F/0x05).
