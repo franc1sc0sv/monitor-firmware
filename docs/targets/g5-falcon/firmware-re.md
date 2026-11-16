@@ -685,3 +685,17 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
 5. Erase+program bank B from DRAM with the stock 8051 routines (FE2P_BASE moved, restored after), verify by read-back,
    write the region-B descriptor, **flip 0x7FFF last**. Hard address guard in the engine: bank B + its descriptor
    sector only.
+
+### 1021.0 on hardware (2026-11-16)
+- Hook: F4 2-byte upload verified (DEADBEEF/1234 read back); F5 absolute call works (HAL mailbox, MailBox_LoadFE2P).
+- **8051 PEEK/POKE work.** PEEK controls: XDATA F050 = 0x15, F0DD = 0x04 (match the SPARC-window values); the value
+  is the MSB of mailbox word +0xB4. POKE F19F = 0x5A read back, restored. ~4 s per DDC-paced PEEK.
+- FE2P_BASE (a757..a75a) = **0x00108000** = flash start of the SPARC app record; its first 64 KB are 0xFF in the
+  image, i.e. the FE2P settings live in flash 0x108000..0x117FFF. cmd 0x14 computes a75b..a75e = base + offset and
+  a75f/a760 = length (b1 = 0x10 -> 0x1000). The base reverted to 0x108000 by itself between two commands (the
+  firmware re-applies it) -> any moved-base operation must re-POKE it immediately before each command.
+- **Driving the SPI engine registers directly crashes the chip**: an uploaded runner that POKEd F0EA/F0E6/F0E5 at
+  full speed made the monitor reboot (recovered by itself, 1021.0 intact). DDC-paced POKEs had no visible effect.
+  The engine is presumably shared with code fetch; only the 8051's own flash routines may use it.
+- cmd 0x12 (b1 = 1) did not leave data in XDATA 0xA800 (reads 0xFF) and the +0xB0 reply read 0: the read data path
+  (0x8145 -> probably DMA into SPARC DRAM, cf. the settings reload seen on 1019.0) is still to be decoded.

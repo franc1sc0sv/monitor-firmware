@@ -1,25 +1,37 @@
 # Host library for the 1021.0 final hook. Dot-source after g5-ddc.ps1.
-#   Up([UInt32]addr, [byte[]]data)   upload into the window [0xA803C400, 0xA803CFE8) (2 bytes per frame; pads odd)
-#   Call([UInt32]target, args[0..4]) absolute call (runtime address), returns RESULT
+#   Up([UInt32]addr, [byte[]]data)   upload into the window [0xA803C400, 0xA803CFE8) (2 bytes per frame), verified
+#   Call([UInt32]target, args)       absolute call (runtime address) with up to 5 args, returns RESULT
 #   Mbox(cmd,b1,b2,b3,mode)          HAL mailbox to the 8051 (nominal 0xA002EF00 = runtime 0xA002F220)
-#   Poke51([int]xaddr,[byte]v) / Peek51([int]xaddr)   8051 XDATA via the patched mailbox cmds 0x21 / 0x03
+#   Poke51(xaddr, v) / Peek51(xaddr) 8051 XDATA via the patched mailbox cmds 0x21 / 0x03
+# Note: reading ADDR itself over DDC is impossible (SetAddr overwrites it); verify uploads by reading the data back.
 $script:SLF = [Convert]::ToUInt32('A803CFC0', 16)
 $script:HALMBOX = [Convert]::ToUInt32('A002F220', 16)
 $script:MBOX = [Convert]::ToUInt32('9F0A0100', 16)
+function BytesOf([UInt64]$v) { $b = New-Object byte[] 4; for ($k = 0; $k -lt 4; $k++) { $b[$k] = [byte](($v -shr (24 - 8 * $k)) -band 0xFF) }; , $b }
 function Up([UInt32]$addr, [byte[]]$data) {
-  if ($data.Length % 2) { $data = $data + [byte]0 }
+  for ($try = 0; $try -lt 4; $try++) { try { Up1 $addr $data; return } catch { if ($try -eq 3) { throw }; Start-Sleep -Milliseconds 1500 } }
+}
+function Up1([UInt32]$addr, [byte[]]$data) {
+  $n = $data.Length; if ($n % 2) { $data = [byte[]]($data + [byte]0) }
   SetAddr $addr
   for ($i = 0; $i -lt $data.Length; $i += 2) { SetF 0xF4 $data[$i] $data[$i + 1] }
-  $end = RdWF $script:SLF; if ($end -ne [UInt32]($addr + $data.Length)) { throw ("upload ended at 0x{0:X8}, want 0x{1:X8}" -f $end, ($addr + $data.Length)) }
+  for ($i = 0; $i -lt $n; $i += 4) {
+    $w = [UInt64](RdWF ([UInt32]($addr + $i)))
+    for ($k = 0; $k -lt 4 -and $i + $k -lt $n; $k++) {
+      $got = ($w -shr (24 - 8 * $k)) -band 0xFF
+      if ($got -ne $data[$i + $k]) { throw ("upload verify failed at 0x{0:X8}: 0x{1:X2} want 0x{2:X2}" -f ($addr + $i + $k), $got, $data[$i + $k]) }
+    }
+  }
 }
-function W32([UInt32]$v) { [byte[]](($v -shr 24) -band 0xFF, ($v -shr 16) -band 0xFF, ($v -shr 8) -band 0xFF, $v -band 0xFF) }
-function Call([UInt32]$target, [UInt32[]]$a) {
-  $buf = @(); $buf += W32 $target; for ($k = 0; $k -lt 5; $k++) { $buf += W32 ($(if ($k -lt $a.Count) { $a[$k] } else { 0 })) }
-  Up ([UInt32]($script:SLF + 4)) ([byte[]]$buf)
-  if ((RdWF ([UInt32]($script:SLF + 4))) -ne $target) { throw "TARG staging mismatch" }
+function Call([UInt32]$target, [object[]]$a) {
+  $buf = New-Object System.Collections.Generic.List[byte]
+  $buf.AddRange((BytesOf $target))
+  for ($k = 0; $k -lt 5; $k++) { $v = 0; if ($k -lt $a.Count) { $v = [UInt64]$a[$k] }; $buf.AddRange((BytesOf $v)) }
+  Up ([UInt32]($script:SLF + 4)) $buf.ToArray()
   SetF 0xF5 0 0; Start-Sleep -Milliseconds 300
-  RdWF ([UInt32]($script:SLF + 0x18))
+  for ($t = 0; $t -lt 30; $t++) { try { return RdWF ([UInt32]($script:SLF + 0x18)) } catch { Start-Sleep -Milliseconds 1000 } }
+  throw 'monitor did not come back after F5'
 }
-function Mbox([int]$cmd, [int]$b1, [int]$b2, [int]$b3, [int]$mode = 1) { Call $script:HALMBOX @([UInt32]$cmd, [UInt32]$b1, [UInt32]$b2, [UInt32]$b3, [UInt32]$mode) | Out-Null }
+function Mbox([int]$cmd, [int]$b1, [int]$b2, [int]$b3, [int]$mode = 1) { $null = Call $script:HALMBOX @($cmd, $b1, $b2, $b3, $mode) }
 function Poke51([int]$x, [int]$v) { Mbox 0x21 (($x -shr 8) -band 0xFF) ($x -band 0xFF) ($v -band 0xFF) 1 }
 function Peek51([int]$x) { Mbox 0x03 (($x -shr 8) -band 0xFF) ($x -band 0xFF) 0 1; Start-Sleep -Milliseconds 100; RdWF ([UInt32]($script:MBOX + 0xB4)) }
