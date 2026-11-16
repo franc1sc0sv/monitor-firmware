@@ -353,3 +353,13 @@ Two paths to read the SPI RX: (A) a SPARC wrapper that reads the SPI data/status
 0xA002CBD4 is in the 0xA002xxxx region with a different relocation than the 0x320 code delta, so not directly F5-able);
 (B) add 32-bit MMIO read/write to the hook (reflash) and drive the SPI controller regs (0xCF03Cxxx) directly. Pursue A
 first (no reflash).
+
+### Blind HAL experiments don't work; monitor self-recovers (2026-11-15)
+Driving SPI by calling HAL funcs (0xA002EF00/0xA002CBD4) with guessed args from the host transiently corrupts state
+(reads briefly return 0 / delta 0) and does NOT reveal the RX register. The monitor **self-recovers** every time
+(firmware main loop re-inits) — confirmed: fw string/brightness/input all OK after. So the experiments are safe but
+unreliable. CS can be held across F5 calls via 0x126A2C(0xc,0xc0) (assert) / (0xc,0x40) (deassert), but reading the RX
+byte needs the exact HAL read convention, which blind calls don't give. **Correct path:** statically reverse the
+firmware's own flash/EEPROM READ (0x1689FC family) to extract the precise CS/send/recv sequence, then put a complete
+SPI-transaction routine in a hook (CS held internally) — reliable, no host-side guessing. That routine is also the
+internal-flasher building block. Needs a hook change (reflash) once designed.
