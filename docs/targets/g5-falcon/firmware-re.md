@@ -576,3 +576,45 @@ Supervised next steps (each one only with the user present, in this order):
 3. Capture a real USB update's register traffic (poll F190..F19F / F1E0 over DDC while the monitor updates from the
    stick) to learn the hand-off and the ROM-ISP status sequence without guessing.
 4. Then choose A or B and build 1020.0 for it.
+
+## Supervised session 2026-11-16 (user present): FE2P read, slot collision, vendor USB-update protocol
+
+### DDC pitfall: stale replies (confirmed on hardware)
+With the monitor in standby, or busy right after an F5 call, the DDC/CI reply buffer keeps returning the **previous**
+frame. A stale F3 frame passes GetF's header/checksum/vcp check, so a whole snapshot read as `0x14` while the monitor
+was off. Fixes in `g5-ddc.ps1`: refuse to start unless VCP D6 gets a fresh reply; `RdWF` does a standard VCP query
+before every F3 read. Read-only tools added: `g5-snap.ps1` (words / 8051 XDATA registers) and `g5-fe2p-read.ps1`.
+
+### SAFETY: the 1019.0 hook slots overlap a live settings table (confirmed on hardware)
+RAM 0xA8039910.. holds an array of 16-byte settings records (values such as 0x32 = 50, repeated per mode). The hook's
+SLOTS (0xA8039A00 + 0..0x27) sit **inside** it: every SetAddr writes ADDR over a record word, and F4/F5 staging writes
+TARG/ARG/VALW over record bytes. After `F5 MailBox_LoadFE2P(0, 0x10)` the area was rewritten with normal-looking
+settings bytes (our staged values gone; only the ADDR word keeps 0xA8039A00), i.e. the settings were reloaded — strong
+(inferred) evidence that the SPARC -> 8051 -> flash read path works end to end; the mailbox reply words read 0 by the
+time they were sampled. Consequences: a power cycle without touching the OSD reloads clean settings; **1020.0 must move
+SLOTS to verified-free RAM** (the same overlap explains why F5 must not run while the firmware reloads settings: SAVED
+lives there too). The F5 call returned normally; DDC was busy ~1-2 s afterwards.
+
+### Vendor USB update, SPARC side (confirmed by disassembly; module 0x14C000..0x14EA00)
+The SPARC drives a "USB Cop" (the 8051 updater code) through the F19x block: command byte -> **F191** (0x48 / 0x45
+get file FW version, 0x46 = CMD_LOADFILE2DRAM), sub-requests/handshake -> **F198** (0x56/0x55/0x54/0x53 read version
+bytes, 0x5B/0x5A, 0x52), status <- F190 / F198, file location and size <- **F19B..F19E**. Then
+"17 pro": the SPARC enables a **DRAM access port** (`0xCF011F80 = 0x81`) and byte-sums the loaded file, `size/32` lines
+starting at **line address (n << 16)** (n and size from F19B..F19E), compares with the checksum in the file name tag
+(`[AE8D]`), prints "CKS or DDR error" on mismatch, and on success calls `0x14D004 USBCop_ConfirmInit`:
+`0xCF011F80 = 0x80`, F1E0 &= ~2, clear F190..F19F, F1E0 = (F1E0 & ~1) | 2, HAL call (nominal 0xA002E0F8), then the
+SPARC spins forever while the 8051 updater / ROM ISP programs the flash from DRAM.
+
+DRAM access port (from `0x141010`, `0x1413EC`, `0x1415C8`, `0x141750`): line address (32-byte lines) in
+**0xCF011FA0/A4/A8/AC** (bytes 0..3); **read**: F84 = 0x80, F8C = 0x80, wait F90 == 0x80, then 32 bytes from data port
+**F94**; **write**: F84 = 0x80, then bytes to data port **F88**. F80 = 0x81 while the update path uses it. The SPARC
+can therefore **write the staging DRAM itself**: route A no longer needs the USB stick, only (1) the staging line
+address the updater uses, (2) the file bytes in DRAM, and (3) the state the 8051 updater expects before ConfirmInit.
+
+### Route A, concrete (inferred; next to prove)
+1020.0 hook: SLOTS moved to free RAM; a DDC block-write (32 bytes per frame) into the DRAM port; an in-chip copy from
+SPARC RAM into the port (F5 on `0x1415C8`) for the code record (identical to the running code); then the vendor
+checksum + ConfirmInit sequence. Still unknown: the staging line address and the updater's own state before
+ConfirmInit (it normally loaded the file itself, status 0x97). Fastest way to learn both: poll F190..F19F (+ F1E0)
+over DDC during a real USB update of the **same** 1019.0 image (needs the user's in-session OK; it is a real flash
+through the vendor path).

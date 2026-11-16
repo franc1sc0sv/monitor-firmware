@@ -16,4 +16,11 @@ function GetF($vcp,$ms=60){
 }
 function SetAddr($a){ SetF 0xF0 ([byte](($a-shr 24)-band 0xFF)) ([byte](($a-shr 16)-band 0xFF)); SetF 0xF1 ([byte](($a-shr 8)-band 0xFF)) ([byte]($a-band 0xFF)) }
 function Rd4($a){ for($t=0;$t -lt 4;$t++){ SetAddr $a; $m=GetF 0xF2; if($m){return $m} }; $null }
+# Power check: in standby the DDC buffer keeps returning the last reply (a stale F3 frame passes GetF's header
+# check), so refuse to run unless VCP D6 (power mode) gets a fresh reply (vcp code D6 echoed back).
+$script:pw=GetF 0xD6 150
+if(-not $script:pw){ throw "G5_NOT_ON (D6 reply: $script:pw)" }
 function HexB($b){ if($b){ ($b|%{'{0:X2}' -f $_}) -join ' ' } else {'FAIL'} }
+# Fresh 32-bit word read (F3). A busy monitor (e.g. right after an F5 call) leaves the previous F3 frame in the buffer,
+# which passes GetF's checks; a standard VCP query in between proves the reply buffer is live again.
+function RdWF([UInt32]$a){ for($t=0;$t -lt 6;$t++){ if(-not (GetF 0x10 100)){ Start-Sleep -Milliseconds 300; continue }; SetAddr $a; $m=GetF 0xF3 100; if($m){ return (([UInt32]$m[0] -shl 24) -bor ([UInt32]$m[1] -shl 16) -bor ([UInt32]$m[2] -shl 8) -bor [UInt32]$m[3]) } }; throw ("read failed at 0x{0:X8}" -f $a) }
