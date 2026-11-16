@@ -298,3 +298,10 @@ addresses. This is the cleanest path (no cross-region call relocation): read for
 Plan: (1) map the SPI reg layout from 0x126A2C's jump table (cmd/data/status/CS regs); (2) a hook that allows R/W of
 the SPI MMIO window only; (3) read-only JEDEC/RDSR proof over DDC; (4) flash read (backup/verify); (5) bank-B
 erase/program with the hard address guard; (6) activation last. All writes gated per the safety protocol.
+
+### SPI controller register map (MMIO)
+The reg-op dispatcher `0x126A2C` writes the SPI controller registers in **0xCF03C2C0..0xCF03CC8C** (data/cmd/ctrl/CS
+set). The low-level helpers wrap these with CS toggling (0x1509B0/E8) and a byte-send (0x15E560 drives regs 0x13/0x14
+via the 0xA002xxxx HAL). Driving raw SPI register-by-register over DDC is possible but fragile/risky, so prefer the
+firmware's own high-level flash routines (addr+buf+len) used by the USB updater — to be located next (SPARC update
+data dispatch 0x18E274 / external-FW wrapper, or an 8051 program routine).
