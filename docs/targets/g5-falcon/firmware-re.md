@@ -543,3 +543,18 @@ command block F190..F19F**: the updater copies its command from **F191** (`0x467
 through F190/F192/F193 — this is the channel the SPARC's `USBCop_*` code uses during a USB update, and the lever for a
 vendor-path flasher once the updater is running. Open: how the SPARC switches the 8051 from runtime to updater, and
 where the image is staged in DRAM for the ROM-code ISP.
+
+### 8051 boot loader and the runtime -> updater hand-off (boot confirmed by decompilation; hand-off inferred)
+Boot (`flash 0`, built "Aug 17 2022"): Keil startup -> `main 0x0F3F` -> `0x0003` reads the tag (0x7FFF), picks the
+descriptor (0x6000/0x7000), fails with "Can't find valid partition table!!!" if it is bad, copies the descriptor into a
+shared structure at its XDATA 0xA000.. (which also carries opcodes such as 0x9F), then programs **F1D3..F1D5 = start
+address** ("FLASH_ADDRL/M/H") and **F1D6..F1D8 = length** ("BOOT_DATA_LENGTHL/M/H") of descriptor entry 0 (the runtime,
+0x010000) and prints "Re-booting STBC code..." — i.e. **the hardware loads that flash block into 8051 code RAM and
+restarts the 8051** (the 8051 runs from RAM, which is why it can use the SPI engine freely).
+Inferred hand-off for a USB update: point F1D3..F1D8 at descriptor entry 1 (updater, 0x020000 / 0xC16B) and warm-reset
+the 8051 (the runtime has "0x4570[5] toggle ==> warm Reset!!"; the SPARC `USBCop_ConfirmInit` writes 0xCF011F80=0x80,
+clears F190..F19F and toggles F1E0 bits 0/1; the updater's ISP start writes D7E0=0x81, F1EB=0x8A/0x82, F1E0=2/10).
+All of these are in (or next to) the SPARC-visible register page, but whether SPARC writes to F1D3..F1D8 / F1E0 are
+accepted (unlike the SPI engine) is untested. A further, speculative lead: "ISP ROMCODE mode" may be the chip's
+mask-ROM ISP that Novatek factory tools drive over DDC; if the updater's ISP start makes a new I2C slave appear, a true
+DDC flasher would use the vendor ISP protocol (with our tag-last discipline).
