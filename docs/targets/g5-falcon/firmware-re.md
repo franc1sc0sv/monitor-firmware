@@ -800,3 +800,20 @@ hi/lo) -> cmd 0x11 (program from 8051 XDATA 0xA800, data loaded with SPARC 0x15F
   against the XIP view and returns the mismatching word count (-1 = refused). Guard: dst must be the activation
   sector 0x7000 or lie in the **inactive** bank (tag byte at flash 0x7FFF read in-chip). Source must never be the
   destination sector (it is erased first).
+
+### INCIDENT 2026-11-16: monitor dead after the first sector-job run (no LED, no DDC/EDID)
+- 1021.4 installed by USB landed in **bank A** (tag erased to 0xFF; bank B kept 1021.2). Planned 1021.5 into bank B.
+- The sector job for **0x41F000** (bank-B 8051 runtime) took its page source from bank A 0x01F000 via the XIP
+  window, which read all 0xFF (flash 0x8000..0x107FFF is apparently not visible: VA 0x700000+), so it skipped every
+  page; the in-chip verify then reported 12 mismatching words. Afterwards bank A 0x01F6BC read 0xFF and bank B
+  0x41F6BC still read its old bytes. A Reboot51 (F1A8 reset) followed -> **no power LED, no EDID, no DDC**.
+- Most likely cause (inferred): the erase landed on **bank A 0x01F000** (the active 8051 runtime, file offsets
+  0xF000..0xFAA7 of segment A), e.g. the 8051 address path truncating 0x41F000 to 4 MB; the 8051 kept running from
+  its code RAM until the reset, then the boot loaded a runtime with a 4 KB hole. Not yet confirmed.
+- No DDC device answers on the AMD HDMI port (display enumerated but not connected; 0x30/37/3A/49/50/54/59/60/62/
+  6E/7C/7E all fail). Recovery needs an external SPI programmer (CH341A + SOIC-8 clip; Winbond, JEDEC 0xEF): read the
+  full 8 MB, replace only 0x01F000..0x01FFFF with `out/g5-recovery-sector-01F000.bin` (1021.4 runtime bytes 0xF000..
+  0xFABF + 0xFF), write, verify.
+- Rules added: never trust XIP reads below flash 0x108000 except 0..0x7FFF; never reboot after a flash write until the
+  ACTIVE bank's affected areas are proven intact; prove the erase address mapping on a scratch sector of the SAME
+  address class (bank B low area) before any sector job.
