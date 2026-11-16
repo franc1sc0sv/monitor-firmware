@@ -706,3 +706,17 @@ No free 8051 code space exists (the zero/RET runs at 0x7733 and 0xFA74 belong to
   every flash operation must be a DDC-paced sequence of F5 calls to existing firmware functions** (erase 0x15E560,
   data push 0x15FB9C, program 0x15E524, read 0x15E490, all at runtime +0x320) plus 8051 PEEK/POKE.
 - Writable executable memory would need another hook (e.g. a tiny interpreter loop in the dead region); not done.
+
+### 1021.1 on hardware (2026-11-16)
+- **F8 call-list interpreter works** (two back-to-back 8051 PEEKs in one list; F0DD = 0x04). Note for PowerShell
+  callers: a one-entry list must be written `@(,@(...))` or it is flattened into scalar targets (that crashed once).
+- **FE2P_BASE is now 0x00508000** (was 0x00108000 before the last updates): the unit booted the other bank, so bank B
+  sits at **+0x400000** (inferred from the base; the boot tag/descriptor still to be read).
+- In-chip list [POKE base, POKE base, cmd 0x14] works (a75b..a760 = 0x00608000, len 0x0100).
+- **Any cmd 0x12 that actually reads (handshake byte = 1 at +0xBB) reboots the chip**, from F5 or F8, with or
+  without moving the base, with HAL mode 2 or with a manual handshake (HAL mailbox write 0xA002C80C) + mode 1, and
+  with the firmware's own flash-access bracket (0x1509E8 / 0x1509B0, runtime +0x320) around it. cmd 0x12 without the
+  handshake (no read) does not reboot. The "settings reload" seen on 1019.0 after LoadFE2P was in fact such a reboot.
+  Open hypotheses: the SPARC's mailbox-reply path for 0x12 (FE2P load) reinitialises/reboots when the reply is not
+  one it requested; or the read needs more state the settings task sets up. Next: decode the SPARC side that consumes
+  the 0x12 reply (+0xB0 checksum / +0xB8 = 2) before trying again.

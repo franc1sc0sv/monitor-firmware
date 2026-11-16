@@ -35,3 +35,17 @@ function Call([UInt32]$target, [object[]]$a) {
 function Mbox([int]$cmd, [int]$b1, [int]$b2, [int]$b3, [int]$mode = 1) { $null = Call $script:HALMBOX @($cmd, $b1, $b2, $b3, $mode) }
 function Poke51([int]$x, [int]$v) { Mbox 0x21 (($x -shr 8) -band 0xFF) ($x -band 0xFF) ($v -band 0xFF) 1 }
 function Peek51([int]$x) { Mbox 0x03 (($x -shr 8) -band 0xFF) ($x -band 0xFF) 0 1; Start-Sleep -Milliseconds 100; RdWF ([UInt32]($script:MBOX + 0xB4)) }
+# F8 (1021.1+): run a call list in-chip. $calls = array of @(target, a0, a1, a2, a3, a4); returns the results.
+$script:LIST = [Convert]::ToUInt32('A803C600', 16)
+function RunList([object[]]$calls) {
+  $buf = New-Object System.Collections.Generic.List[byte]
+  foreach ($c in $calls) { for ($k = 0; $k -lt 6; $k++) { $v = 0; if ($k -lt $c.Count) { $v = [UInt64]$c[$k] }; $buf.AddRange((BytesOf $v)) } }
+  $buf.AddRange((BytesOf 0))
+  Up $script:LIST $buf.ToArray()
+  SetF 0xF8 0 0; Start-Sleep -Milliseconds 300
+  $out = @()
+  for ($i = 0; $i -lt $calls.Count; $i++) {
+    for ($t = 0; $t -lt 30; $t++) { try { $out += (RdWF ([UInt32]($script:LIST + 24 * $i))); break } catch { Start-Sleep -Milliseconds 1000 } }
+  }
+  , $out
+}
