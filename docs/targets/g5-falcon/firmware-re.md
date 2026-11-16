@@ -117,7 +117,34 @@ stubs the sibling RE flagged (PDIC/TCON/FPGA update stubs with no reachable call
 
 Confirmed in `main_direct_call_edges.csv`: no edge targets `0x1E45D4`. 144 bytes is ample for a memory read/write hook.
 
-### Remaining before writing the hook
+### Finalized hook design (proof patch first — no scratch RAM needed)
+
+The DDC state block at `0xA803B0xx` is densely used, so guessing spare RAM there is risky. The **first** patch is a
+minimal proof that needs no scratch: a new Get-VCP code `0xF2` that returns a magic value, validating the whole hook
+pipeline on hardware before the real memory addressing is added.
+
+Call-site redirect at VA `0x103EBC` (file `0x131EBC`): change `call 0x1882AC` → `call CAVE` (`0x1E45D4`). The delay
+slot `mov %l3, %o2` still runs, so the original args survive. At CAVE: `%o7 = 0x103EBC` (from `call`), `%o0 = code`,
+`%o1 = reply buf`.
+
+```sparc
+CAVE (0x1E45D4):           ; proof: code 0xF2 -> magic
+  cmp  %o0, 0xF2
+  bne  0x1882AC            ; not ours: BRANCH (not call) to real GetVcp, %o7 preserved
+   nop                     ; delay slot
+  mov  0xAD,%g1 ; stb %g1,[%o1]     ; MH
+  mov  0xDE,%g1 ; stb %g1,[%o1+1]   ; ML
+  mov  0xBE,%g1 ; stb %g1,[%o1+2]   ; CH
+  mov  0xEF,%g1 ; stb %g1,[%o1+3]   ; CL
+  retl                     ; return to %o7+8 = 0x103EC4 (dispatcher checks %o0)
+   mov  1,%o0              ; delay slot: return "supported"
+```
+
+Why it is correct: the dispatcher's `call` sets `%o7 = 0x103EBC`; both `retl` (ours) and `DdcCmdGetVcp`'s `ret`
+return to `%o7+8 = 0x103EC4`, exactly where the stock flow resumes (`andcc %o0,0xff` — the supported check). So a
+read of VCP `0xF2` over DDC should return `AD DE BE EF`; every other code behaves bit-for-bit as stock.
+
+### For the real memory-read step (after the proof)
 
 - **Scratch RAM** for the current address (LC34 used its RAM block): locate a few unused runtime bytes
   (`0xA80xxxxx` globals or spare settings bytes). Next step.
