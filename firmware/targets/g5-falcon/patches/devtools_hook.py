@@ -36,10 +36,10 @@ GETVCP, SETVCP = 0x1882AC, 0x1869BC
 GET_CS, SET_CS = 0x103EBC, 0x104170
 REGION = 0x1E14EC                      # verified-dead, 0x280 bytes
 SLOTS = 0xA8039A00                     # writable BSS
-ADDR, TARG, ARG0, RESULT, SAVED = SLOTS, SLOTS + 4, SLOTS + 8, SLOTS + 0x18, SLOTS + 0x1C
+ADDR, TARG, ARG0, RESULT, SAVED, DELTA = SLOTS, SLOTS + 4, SLOTS + 8, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x20
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
 WLO, WHI = 0xA8034000, 0xA803C400      # read+write window (BSS)
-NEW_VERSION = "1016.0"
+NEW_VERSION = "1017.0"
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 
@@ -58,6 +58,9 @@ class Asm:
     def addr(self, reg, a):                       # reg = absolute address a (sethi/or)
         self.ins(f"sethi {_hi(a)}, {reg}"); self.ins(f"or {reg}, {_lo(a)}, {reg}")
     def br(self, c, t): self.items.append(("b", c, t))
+    def pccall(self): self.items.append(("pccall",))                   # call .+8 (%o7 = runtime PC of this instr)
+    def loadva(self, reg, lab):                                        # reg = the *file* VA of a label (sethi/or)
+        self.items.append(("lvh", reg, lab)); self.items.append(("lvl", reg, lab))
     def assemble(self):
         pc = self.base
         for it in self.items:
@@ -68,6 +71,9 @@ class Asm:
             if it[0] == "L": continue
             if it[0] == "i": out += _i(it[1], pc)
             elif it[0] == "b": out += _b(it[1], pc, self.labels[it[2]] if isinstance(it[2], str) else it[2])
+            elif it[0] == "pccall": out += _call(pc, pc + 8)
+            elif it[0] == "lvh": out += _i(f"sethi {_hi(self.labels[it[2]])}, {it[1]}", pc)
+            elif it[0] == "lvl": out += _i(f"or {it[1]}, {_lo(self.labels[it[2]])}, {it[1]}", pc)
             pc += 4
         return out
 
@@ -113,14 +119,16 @@ def build() -> tuple[int, bytes, int]:
     a.ins(f"sethi {_hi(WHI)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND"); a.ins("nop")
     a.ins("stb %g4, [%g5]"); a.addr("%g2", ADDR); a.ins("add %g5, 1, %g5"); a.ins("st %g5, [%g2]")
     a.label("SEND"); a.ins("retl"); a.ins("mov 1, %o0")
-    a.label("SF5")   # call TARG(arg0..arg3); RESULT = return value
-    a.addr("%g2", SAVED); a.ins("st %o7, [%g2]")           # preserve hook return across the inner call
-    a.addr("%g2", TARG)
-    a.ins("ld [%g2], %g1")                                  # target
+    a.label("SF5")   # call TARG(arg0..arg3) with the code relocated at runtime; RESULT = return value
+    a.addr("%g2", SAVED); a.ins("st %o7, [%g2]")           # save hook return (pccall below clobbers %o7)
+    a.label("PCM"); a.pccall(); a.ins("nop")               # %o7 = runtime addr of PCM
+    a.loadva("%g1", "PCM"); a.ins("sub %o7, %g1, %g4")     # %g4 = delta = runtime(PCM) - file VA(PCM)
+    a.addr("%g2", DELTA); a.ins("st %g4, [%g2]")           # expose delta for diagnostics
+    a.addr("%g2", TARG); a.ins("ld [%g2], %g1"); a.ins("add %g1, %g4, %g1")   # target_runtime = file VA + delta
     a.ins("ld [%g2+4], %o0"); a.ins("ld [%g2+8], %o1"); a.ins("ld [%g2+0xC], %o2"); a.ins("ld [%g2+0x10], %o3")
-    a.ins("jmpl %g1, %o7"); a.ins("nop")                    # call target
-    a.addr("%g2", RESULT); a.ins("st %o0, [%g2]")           # store return value
-    a.addr("%g2", SAVED); a.ins("ld [%g2], %o7")            # restore hook return
+    a.ins("jmpl %g1, %o7"); a.ins("nop")                   # call target
+    a.addr("%g2", RESULT); a.ins("st %o0, [%g2]")          # store return value
+    a.addr("%g2", SAVED); a.ins("ld [%g2], %o7")           # restore hook return
     a.ins("retl"); a.ins("mov 1, %o0")
     code = a.assemble()
     assert len(code) <= 0x280, f"hook ({len(code)}B) overruns the dead region"
