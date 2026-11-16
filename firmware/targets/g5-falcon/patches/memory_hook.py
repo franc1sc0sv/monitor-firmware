@@ -24,7 +24,7 @@ GET_CALLSITE, SET_CALLSITE = 0x103EBC, 0x104170
 REGION = 0x1E3428                     # dead func, 0x188 bytes, 0 callers
 VAR = REGION + 0x180                  # 4-byte current-address scratch at the tail
 LO, HI = 0x100000, 0x2F8000           # safe RAM read/write window
-NEW_VERSION = "1010.0"
+NEW_VERSION = "1011.0"                # must be higher than the version already on the unit (updater rejects <=)
 
 ks = Ks(KS_ARCH_SPARC, KS_MODE_SPARC32 | KS_MODE_BIG_ENDIAN)
 md = Cs(CS_ARCH_SPARC, CS_MODE_BIG_ENDIAN)
