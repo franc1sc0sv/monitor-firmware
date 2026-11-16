@@ -629,3 +629,14 @@ hash). `g5-watch-update.ps1` (~3 s per register cycle) logged:
   firmware string now reads **"1019.1"** at data VA 0x245664 (confirmed: update worked, hook alive).
 Not caught: the file location/size words (the cycle is too slow; F19B..F19E carried name bytes while sampled).
 Next capture needs a faster watcher (F190/F198/F19B..F19E only, no per-read VCP flush once the monitor is known live).
+
+### 1019.2 capture, 1020.0 failure, 1020.1 (2026-11-16)
+- USB update to 1019.2 with the fast watcher: no F19x change was seen before DDC went silent (~41 s): during the load
+  the SPARC stops serving DDC, so register sniffing cannot reveal the staging address. Static RE of segB: commands
+  0x43 / 0x44 report XDATA 0x718 / 0x109 through F19B..F19E (values derived from FAT/LBA arithmetic, not a fixed DRAM
+  address).
+- **1020.0** put the slots in the dead code region (runtime 0x1E1A64): **code RAM ignores stores** (F0/F1 did not
+  change ADDR, F2 kept reading the stale address; F3 on the stale unaligned ADDR trapped and DDC stalled until the
+  monitor recovered on its own). Standard VCPs kept working.
+- **1020.1** moves the slots to BSS 0xA803CFC0 (top of the largest unreferenced gap 0xA803C3E8..0xA803D000) and keeps
+  the DRAM-port F6 window. F4 may write only the slots.
