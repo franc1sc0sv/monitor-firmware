@@ -251,3 +251,10 @@ file VAs. Data and BSS are at their VAs. This image drives the rest of the flash
 erase/checksum/8051 paths live), so no more USB flashes until the hook itself changes.
 
 Slot map (BSS 0xA8039A00): ADDR+0, TARG+4, ARG0..3 +8..+0x14, RESULT+0x18, SAVED+0x1C, DELTA+0x20.
+
+## Real firmware function called over DDC (2026-11-15)
+Over the dev image, called `SecLibCommon_GetRomChecksum` (0x18B9F4) via F5 and read RESULT = **0xC145** — the stored
+whole-file check marker of the stock image. Confirms the call primitive works on real firmware functions (delta 0x320
+applied, return captured); stock VCPs unaffected. Note GetRomChecksum returns the stored marker, not a live sum, so
+a live-verify for the flasher will need to compute over the written bank instead. Next flasher steps (erase/program)
+are flash writes -> gated on explicit user go-ahead.
