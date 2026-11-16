@@ -337,7 +337,7 @@ primitives (address-agnostic -> bank B directly). Recovery = stock USB .img + A/
 tag until verified). All validated read-only first.
 
 ### SPI primitive map (for composing commands via F5, no reflash)
-- `0x15E560(byte)` = send one SPI byte (writes data reg 0x14 via HAL 0xA002EF00, triggers reg 0x13).
+- ~~`0x15E560(byte)` = send one SPI byte~~ **WRONG — it is 8051 mailbox "set FE2P address" + "erase sector"; see "SAFETY CORRECTION" below. Never call it.**
 - `0xA002CBD4(reg,..)` = HAL **register READ** (0x1509E8's ready-poll reads reg 0xc until bit0==1). [HAL region, call via
   the SPARC wrappers, not directly — different relocation than the 0x320 code delta.]
 - Reg `0xc` = SPI control / chip-select (0x40 idle, 0xc0 active); regs `0x13/0x14` = SPI data.
@@ -404,3 +404,71 @@ Conclusion: the low-level SPI transaction must be decompiled in **Ghidra** (clea
 before a JEDEC/RDSR read-only proof or any SPI-register-driven write can be composed reliably. Hand-decode is
 error-prone here. The NEW, solid capability this session is **reliable 32-bit MMIO read of the SPI controller over
 DDC (F3)** — enough to observe the engine; the write/trigger sequence is the remaining unknown.
+
+## SPARC <-> 8051 flash architecture (2026-11-16, overnight RE session)
+
+### SAFETY CORRECTION — `0x15E560` is NOT "send one SPI byte"
+`0x15E560(v)` = `HAL_mbox(0x14, 0, v>>8, v&0xFF, 1)` + `HAL_mbox(0x13, 0,0,0, 2)` = **8051 "set FE2P address" +
+"erase 4 KB sector"**. The 2026-11-15 "JEDEC experiment" (calling it with 0x9F and 0x00) therefore asked the 8051 to
+erase up to two 4 KB sectors **inside the FE2P (flash-emulated EEPROM) window** — settings storage, not firmware. The
+unit has since booted a USB-flashed image normally (boot/app intact). Worst case: some saved settings reset. **Never
+call 0x15E560, 0x15E524 (program), 0x15E5C4 (write bytes), or any wrapper that sends cmd 0x11/0x13/0x15/0x07.**
+
+### Ghidra setup (local, `data/` ignored)
+- `data/ghidra-g5` (processor `sparc:BE:32:default`): `data/vendor/g5/g5-va-0x100000.bin` (image code+data laid
+  out at VA, base 0x100000) plus the **HAL dump** (`data/vendor/g5/hal-a0028000.bin`, runtime 0xA0028000..0xA0031000,
+  read over DDC with `tools/windows/experiments/g5/g5-dump.ps1`, 0 failures, 7 independent probes match) loaded at
+  **0xA0027CE0** (= runtime − 0x320) via `tools/ghidra/AddBlock.java`, so the code's PC-relative calls resolve.
+- `data/ghidra-8051` (processor `8051:BE:16:default`): 8051 runtime firmware = image file `0x8060..0x17B40`
+  (code base 0, reset `LJMP 0xBACE`). Seeded at the vectors + handler entries.
+
+### Why the HAL calls looked wrong: absolute HAL + relocated code (confirmed)
+The SPARC app runs at file-VA + 0x320 (known). Its `call` to the HAL (0xA002xxxx) is PC-relative, so the real callee
+is the **image target + 0x320**: e.g. `call 0xA002EF00` executes `0xA002F220` (`save` prologue, confirmed in the dump);
+the bytes at the nominal address belong to a different function. All HAL entries in this doc are nominal (link view).
+
+### The HAL mailbox to the 8051 (confirmed: bytes + decompilation)
+`HAL_mbox(cmd, b1, b2, b3, mode)` (nominal 0xA002EF00): waits (<=100 polls) for mailbox word[0]==0, writes
+`b3<<24|b2<<16|b1<<8|cmd`, then mode 2 = handshake on word[0xB8] (set low byte 1, wait for 2), modes 1/2 = wait for
+word[0]==0 again, **mode 3 = spin forever** (power-off/power-save hand-off). Mailbox read/write helpers (nominal
+0xA002C414 / 0xA002C4EC) use bank 0 base **0x9F0A0100** (`sethi 0x27c280; or 0x100`) and bank 1 base 0x9F130100.
+Read over DDC (F3, read-only): word[0]=0 (idle), +0xB8=0x200; the bank-0 region also holds our own DDC/CI frames, so it
+is a shared buffer. Hypothesis "0x9F0A0000 is the whole 8051 XDATA" was **tested and rejected** (XDATA 0xA4xx/0xA7xx
+read as zero there).
+
+SPARC mailbox API module = **0x15DE00..0x15F970** (one small wrapper per command; 45 call sites). Named ones:
+`0x15E490 MailBox_LoadFE2P(offset16, len)` = cmd 0x14 + cmd 0x12 (read; modes fixed 1/2 inside);
+`0x15E524` = cmd 0x14 + cmd 0x11 (**program**); `0x15E560` = cmd 0x14 + cmd 0x13 (**erase**);
+`0x15E5C4` = cmd 0x14 + cmd 0x15 (**write bytes**); `0x15FB9C(n-1, dir, buf)` pushes data SPARC->8051 in 16-byte
+slots (header `cmd 7`) at mailbox +0x10+k*0x14; also DCoffTimer (0x26), SetWakeUpTimer (0x1C), Set Indicator
+(0x18/0x19/0x1A), internal EDID (0x01/0x0E), power-save/off (0x16/0x17, mode 3).
+
+### 8051 runtime: mailbox dispatcher and flash routines (confirmed by decompilation, names from its strings)
+Dispatcher: `mov a,r3; dec a; cjne a,#0x2A; mov dptr,#0x27B6; mul ab(x3); jmp @a+dptr` -> commands 1..0x2A.
+| cmd | 8051 handler | meaning |
+|---|---|---|
+| 0x14 | 0x28DC | `addr(a75b..e) = FE2P_BASE(a757..a) + offset16`; optional len; prints "Update FE2P Addr %08lx"; replies addr at +0xB4 |
+| 0x12 | 0x290A | read flash at addr (`0x8145`, "read flash flashaddr %08lx, Length %d"), checksum (`0xC912`), reply at +0xB0 |
+| 0x13 | 0x291B | erase: `0x9766` ("DoBlockErase"), opcode 0x20 (4 KB) / 0x52 (32 KB) / else 64 KB; WREN first |
+| 0x11 | 0x28FF | program (`0x77C9`): 8051 SPI controller XDATA `F1C0`(ctrl)=0x82, data to `F1C3`, WREN (`0xEE5D(6)`), busy-wait (`0xE876`) |
+| 0x15 | 0x2926 | write bytes (`0xB1A8`) via the program path |
+| 0x16 / 0x17 | 0x2949 / 0x297B | CMD_SYS_POWERSAVING / CMD_SYS_POWEROFF |
+| 0x1D / 0x1E | 0x2A08 / 0x2A33 | CMD_SET_P14 / P15 = drive 8051 port pins P1.4 / P1.5 (GPIO, not "parameter 14") |
+| 0x21 | 0x29A6 | CMD_WRITE_DPTXHDCP |
+The read path (`0x8145`) issues **no** WREN/erase/busy-wait (only print, generic loads, Keil math) — read-only.
+**FE2P_BASE is written exactly once, at boot** (`0xE9CF` "FE2P_SetLeon2BaseAddress %08lx", from the bootloader-shared
+structure at XDATA ~0xA794, which is only read). No mailbox command changes it.
+
+### Consequence for the DDC flasher (inferred from the above, high confidence)
+With the stock 8051, mailbox flash ops are **confined to the 64 KB FE2P window**; there is **no stock DDC path to bank B,
+and no JEDEC command**. The 8051 owns the flash (its runtime has the JEDEC "Flash Info", WREN, erase, program, quad-mode
+code). Realistic flasher routes, in order of preference:
+1. **Vendor dual-FW updater path** (8051 segment B, file 0x17B40.., banked): `CMD_LOADFILE2DRAM`,
+   `CMD_START_ISP_ROMCODE_MODE_DUALFW`, `TagInfo.ValidRegionNext/Current`. If it programs the inactive region from
+   DRAM, the SPARC could stage the image in DRAM (the running image + a small diff) and trigger it. Next RE target.
+2. **Patched 8051 runtime** (USB-flashed) adding a "set FE2P base" / 24-bit-address mailbox command, so a SPARC hook
+   drives the 8051's proven erase/program/read anywhere (internal A->B copy + DDC diff). Needs proof first that a
+   broken segment-A cannot block the USB updater (segment B) — otherwise it is an unrecoverable-brick risk.
+3. Direct SPARC access to the 8051 SPI controller registers (XDATA F1C0..) if a SPARC-visible alias exists (unproven).
+Ready-to-run read-only proof for a supervised session: F5 `MailBox_LoadFE2P(0, n)` then F3 read of 0x9F0A01B0
+(checksum) — not run unattended because its effect on the 8051's in-RAM settings copy is not fully known.
