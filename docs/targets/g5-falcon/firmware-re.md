@@ -647,3 +647,11 @@ Next capture needs a faster watcher (F190/F198/F19B..F19E only, no per-read VCP 
   for the update-file header `\x7FNVT` (ARG0 start line, ARG1 probes, ARG2 stride; RESULT = line or 0xFFFFFFFF; ARG0 =
   resume line; DELTA = last word), port sequence copied from SPARC 0x1413EC. Host side: `g5-dram-find.ps1`.
   DDC-side scanning with 1020.2 (`g5-dram-scan.ps1`) costs ~2.6 s per probe.
+
+### Staged update file FOUND in DRAM (hardware-confirmed 2026-11-16, dev hook 1020.3)
+- F7 in-chip scan (stride 0x100 lines, 512 MB in ~3 s) found the `\x7FNVTSC_IMG` header at **DRAM line 0x64500
+  (byte 0xC8A000)** after the USB update that installed 1020.3; it survives the post-update warm reboot.
+- Verified: line 0x64500 == file bytes 0x000..0x01F and line 0x6589B == file bytes 0x27360..0x2737F (exact match).
+- F7 bug: it writes A0 (address byte 0) *after* the F84/F8C trigger, so each probe uses the previous probe's low
+  byte. Harmless with a stride that is a multiple of 0x100 lines; fix = write A0 before the trigger (the decompiler's
+  statement order for SPARC 0x1413EC was misleading). `g5-dram.ps1`'s DramLine writes A0 first and reads correctly.
