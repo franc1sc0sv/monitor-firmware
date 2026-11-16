@@ -533,3 +533,13 @@ pairs — 0x010000/0xFAA7 (8051 runtime), 0x020000/0xC16B (updater), 0x0D0000/0x
 (the last two are not in the update image), then 0xFF padding. Activating a new bank therefore means: write its images,
 write its descriptor (0x7000 for region B), verify, and only then flip the tag byte at 0x7FFF — the "tag last" rule of
 the safety protocol maps onto exactly this byte.
+
+### F6 positive control: SPARC writes reach F19x but not the SPI engine (confirmed on hardware, 2026-11-16)
+F6 wrote 0x5A to XDATA **F19F** (SPARC 0xCF03C67C; used only by the USB updater and the SPARC USB-update code, never by
+the running 8051 runtime or boot) and it **read back 0x5A**, then was restored to 0x00. The same F6 path does not change
+F0EA / F0F4 (SPI engine). So: **F6 works, and the SPI-engine registers ignore SPARC writes** (a hardware write block
+is the natural reading: the SPARC can never drive the flash directly). Conversely the SPARC **can write the updater's
+command block F190..F19F**: the updater copies its command from **F191** (`0x4672`: `08E8 = F191`) and reports status
+through F190/F192/F193 — this is the channel the SPARC's `USBCop_*` code uses during a USB update, and the lever for a
+vendor-path flasher once the updater is running. Open: how the SPARC switches the 8051 from runtime to updater, and
+where the image is staged in DRAM for the ROM-code ISP.
