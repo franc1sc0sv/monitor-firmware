@@ -1,11 +1,12 @@
 # READ-ONLY watcher for a real USB update: polls the updater/hand-off registers over DDC and prints every change with a
-# timestamp (F190..F19F, F1E0, F1EB, 0xCF011F80). Run it, then start the update from the stick; Ctrl+C to stop.
+# timestamp (F190/F191/F198, F19A..F19E = file location/size, F1E0, 0xCF011F80; ~3 s per cycle). ConfirmInit
+# clears F190..F19F and the SPARC stops serving DDC right after, so the load phase is the window to catch. Run it, then start the update from the stick; Ctrl+C to stop.
 # Uses stale-proof reads (a standard VCP query between F3 reads); keeps going when the monitor stops answering.
 param([string]$Log = '')
 . (Join-Path $PSScriptRoot 'g5-ddc.ps1')
 $XB = [Convert]::ToUInt32('CF000000', 16)
 $regs = [ordered]@{}
-foreach ($x in 0xF190..0xF19F + 0xF1E0, 0xF1EB) { $regs[('X{0:X4}' -f $x)] = [UInt32]($XB + $x * 4) }
+foreach ($x in 0xF190, 0xF191, 0xF198, 0xF19A, 0xF19B, 0xF19C, 0xF19D, 0xF19E, 0xF1E0) { $regs[('X{0:X4}' -f $x)] = [UInt32]($XB + $x * 4) }
 $regs['CF011F80'] = [Convert]::ToUInt32('CF011F80', 16)
 $last = @{}; $t0 = Get-Date; $miss = 0
 function Out1($s) { $l = ('{0,7:N1}s {1}' -f ((Get-Date) - $t0).TotalSeconds, $s); $l; if ($Log) { Add-Content -LiteralPath $Log -Value $l } }
