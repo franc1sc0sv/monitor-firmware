@@ -344,3 +344,12 @@ tag until verified). All validated read-only first.
 - `0x1509E8` = CS toggle + wait-ready poll; `0x1509B0` = short CS op.
 Next (read-only, current image): find CS assert/deassert + read-byte SPARC wrappers (or a high-level SPI read fn), then
 drive JEDEC 0x9F / RDSR 0x05 / READ 0x03 via F5 and read results from BSS via F2. A sane JEDEC id proves SPI control.
+
+### Read-only SPI JEDEC experiment (2026-11-15, dev image 1018.0)
+Drove 0x1509E8 (prep) + 0x15E560(0x9F) + 0x15E560(0x00)x3 via F5. All rx read as 0x00 -> **0x15E560 does NOT return the
+received byte**; the SPI RX byte must be read from the data register separately. The monitor stayed healthy (clean
+re-test after: fw string ok, safe call RESULT=1, delta=0x320, brightness ok) — the SPI calls were harmless.
+Two paths to read the SPI RX: (A) a SPARC wrapper that reads the SPI data/status reg, callable via F5 (the HAL reg-read
+0xA002CBD4 is in the 0xA002xxxx region with a different relocation than the 0x320 code delta, so not directly F5-able);
+(B) add 32-bit MMIO read/write to the hook (reflash) and drive the SPI controller regs (0xCF03Cxxx) directly. Pursue A
+first (no reflash).
