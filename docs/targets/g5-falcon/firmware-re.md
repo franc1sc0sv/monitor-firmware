@@ -363,3 +363,29 @@ byte needs the exact HAL read convention, which blind calls don't give. **Correc
 firmware's own flash/EEPROM READ (0x1689FC family) to extract the precise CS/send/recv sequence, then put a complete
 SPI-transaction routine in a hook (CS held internally) — reliable, no host-side guessing. That routine is also the
 internal-flasher building block. Needs a hook change (reflash) once designed.
+
+## SPI controller MMIO is READABLE over DDC via 32-bit word access (hardware-confirmed 2026-11-15)
+Dev image **1019.0[AE8D]** (devtools_hook.py) adds **F3** (Get: single 32-bit word read at ADDR, any address) and
+**F6** (Set: write staged 32-bit VALW to [ADDR], guarded to the SPI window [0xCF03C000,0xCF03D000)). Flashed by USB.
+
+Confirmed on hardware (AMD HDMI DDC link, all transactions `st=0`, monitor healthy throughout):
+- **F3 works**: reading a known RAM word via F2 (4 byte-loads) and F3 (one word-load) returns the identical value.
+- **The SPI controller registers now read real values** (byte-loads returned 0; the record's open question). 32-bit
+  read of 0xCF03C000 = 0x23, +0x00C = 0x61, +0x2C0 = 0x0C, +0x030 = 0x7F, etc. A read-only sweep of
+  [0xCF03C000, 0xCF03CD00) step 4 shows a dense byte-register file (every non-zero reg is a value <=0xFF at a
+  4-byte stride): this is the scaler register space; the SPI engine is a cluster within it.
+- **DDC reply byte order (F2/F3)**, calibrated: from the 11-byte Get-VCP reply `6E 88 02 00 <vcp> 00 b6 b7 b8 b9 ck`,
+  the memory bytes are `mem0=b9, mem1=b7, mem2=b8, mem3=b6`; F3's 32-bit word (big-endian) = mem0<<24|mem1<<16|mem2<<8|mem3.
+- **Memory-read relocation for CODE**: a runtime read at code VA X returns the byte the image has at file
+  `(X-0x320)+0x2E000` (i.e. code runs relocated by +0x320, so a runtime read of VA X sees nominal VA X-0x320). Data/BSS
+  unaffected. (Calibrated: runtime read of 0x200004 = image[0x22DCE4].)
+
+### SPI controller register map (reg_op dispatcher 0x126A2C), decoded from the flat image
+`reg_op(idx<=0x11, v1, v2)` is a **write-only** register setter: it `and`s v1,v2 to bytes and stores each to a pair of
+mirror MMIO regs in the 0xCF03Cxxx file (e.g. idx-0 case -> 0xCF03C2C0=v1, 0xCF03C31C=v2; other cases hit
+0xCF03CC8x/CCCx and 0xCF03C4xx banks), then `retl` (returns %o0 unchanged — it does NOT read). The **read** counterpart
+is a separate dispatcher at **0x126C74** (`reg_read(idx)`, table at VA 0x1268C0). `0x1509E8` (CS + ready poll) drives
+`reg_op(0xc,0x40)`=CS idle / `reg_op(0xc,0xc0)`=CS active, then polls up to 9x; `0x15E560(byte)` drives idx 0x14 (data)
+then idx 0x13 (trigger). Next: decode `reg_read` (0x126C74) to name the RX/status reg, OR (safer) drive the firmware's
+own flash-read routine (GetRomChecksum 0x18B9F4 already reads flash over DDC via F5, returning 0xC145) to read
+JEDEC/backup bytes into a RAM buffer, then F2-read the buffer. No flash write has been issued; all work read-only.
