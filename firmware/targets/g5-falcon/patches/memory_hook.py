@@ -26,7 +26,7 @@ VAR = 0xA8039A00                      # 4-byte scratch in writable BSS (gap 0xA8
                                       # like the firmware's own 0xA80xxxxx refs. Code RAM is RO at runtime, so scratch
                                       # cannot live in the hook region.
 LO, HI = 0x100000, 0x2F8000           # safe RAM read/write window
-NEW_VERSION = "1014.0"           # > version currently on the unit
+NEW_VERSION = "1015.0"           # > version currently on the unit
 
 ks = Ks(KS_ARCH_SPARC, KS_MODE_SPARC32 | KS_MODE_BIG_ENDIAN)
 md = Cs(CS_ARCH_SPARC, CS_MODE_BIG_ENDIAN)
@@ -68,17 +68,26 @@ class Asm:
         return out
 
 
+# Address windows (all sethi-aligned). Reads allow the firmware code/data image and the writable BSS; writes allow
+# only the writable BSS (the code region is read-only at runtime, MMIO is off-limits).
+RLO, RHI = 0x100000, 0x2F8000          # loaded firmware code/data (read-only, readable)
+WLO, WHI = 0xA8034000, 0xA803C400      # writable BSS (read + write)
+_hi = lambda a: (a >> 10) & 0x3FFFFF
+
+
 def build_region() -> tuple[int, bytes, int]:
     a = Asm(REGION)
-    # ---- GET entry (F2 read) : %o0=code, %o1=reply buf ----
+    # ---- GET entry (F2 read) : %o0=code, %o1=reply buf. Read allowed in [RLO,RHI) or [WLO,WHI). ----
     a.label("GET")
     a.ins("cmp %o0, 0xF2"); a.br("bne", GETVCP); a.ins("nop")
-    a.ins(f"sethi {VHI}, %g2"); a.ins(f"or %g2, {VLO}, %g2")   # g2 = &VAR
-    a.ins("ld [%g2], %g3")                                      # g3 = addr
-    a.ins(f"sethi {(LO >> 10) & 0x3FFFFF}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("blu", "GBAD")
-    a.ins("nop")
-    a.ins(f"sethi {(HI >> 10) & 0x3FFFFF}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("bgeu", "GBAD")
-    a.ins("nop")
+    a.ins(f"sethi {VHI}, %g2"); a.ins(f"or %g2, {VLO}, %g2")    # g2 = &VAR
+    a.ins("ld [%g2], %g3")                                       # g3 = addr
+    a.ins(f"sethi {_hi(RLO)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("blu", "GTRY2"); a.ins("nop")
+    a.ins(f"sethi {_hi(RHI)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("blu", "GOK"); a.ins("nop")
+    a.label("GTRY2")                                            # not in code window -> try BSS window
+    a.ins(f"sethi {_hi(WLO)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("blu", "GBAD"); a.ins("nop")
+    a.ins(f"sethi {_hi(WHI)}, %g5"); a.ins("subcc %g3, %g5, %g0"); a.br("bgeu", "GBAD"); a.ins("nop")
+    a.label("GOK")
     a.ins("ldub [%g3], %g4"); a.ins("stb %g4, [%o1]")
     a.ins("ldub [%g3+1], %g4"); a.ins("stb %g4, [%o1+1]")
     a.ins("ldub [%g3+2], %g4"); a.ins("stb %g4, [%o1+2]")
@@ -91,28 +100,26 @@ def build_region() -> tuple[int, bytes, int]:
     a.ins("retl"); a.ins("mov 1, %o0")
     # ---- SET entry (F0/F1/F4) : %o0=code, value at [%fp-0x2c]=hi,[%fp-0x2b]=lo ----
     a.label("SET")
-    a.ins(f"sethi {VHI}, %g2"); a.ins(f"or %g2, {VLO}, %g2")   # g2 = &VAR
+    a.ins(f"sethi {VHI}, %g2"); a.ins(f"or %g2, {VLO}, %g2")    # g2 = &VAR
     a.ins("ldub [%fp-0x2c], %g3"); a.ins("ldub [%fp-0x2b], %g4")
-    a.ins("sll %g3, 8, %g3"); a.ins("or %g3, %g4, %g3")        # g3 = value16
-    a.ins("ld [%g2], %g5")                                      # g5 = old addr
+    a.ins("sll %g3, 8, %g3"); a.ins("or %g3, %g4, %g3")         # g3 = value16
+    a.ins("ld [%g2], %g5")                                       # g5 = old addr
     a.ins("cmp %o0, 0xF0"); a.br("be", "SF0"); a.ins("nop")
     a.ins("cmp %o0, 0xF1"); a.br("be", "SF1"); a.ins("nop")
     a.ins("cmp %o0, 0xF4"); a.br("be", "SF4"); a.ins("nop")
-    a.br("ba", SETVCP); a.ins("nop")                           # not ours -> real SetVcp
+    a.br("ba", SETVCP); a.ins("nop")                            # not ours -> real SetVcp
     a.label("SF0")   # addr = (value16<<16) | (addr & 0xFFFF)
-    a.ins("sll %g5, 16, %g5"); a.ins("srl %g5, 16, %g5")       # g5 = addr low16
+    a.ins("sll %g5, 16, %g5"); a.ins("srl %g5, 16, %g5")        # g5 = addr low16
     a.ins("sll %g3, 16, %g3"); a.ins("or %g3, %g5, %g3"); a.ins("st %g3, [%g2]")
     a.ins("retl"); a.ins("mov 1, %o0")
     a.label("SF1")   # addr = (addr & 0xFFFF0000) | value16
-    a.ins("srl %g5, 16, %g5"); a.ins("sll %g5, 16, %g5")       # g5 = addr high16
+    a.ins("srl %g5, 16, %g5"); a.ins("sll %g5, 16, %g5")        # g5 = addr high16
     a.ins("or %g5, %g3, %g3"); a.ins("st %g3, [%g2]")
     a.ins("retl"); a.ins("mov 1, %o0")
-    a.label("SF4")   # write value_low byte at addr (guarded), addr += 1
-    a.ins(f"sethi {(LO >> 10) & 0x3FFFFF}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "SEND")
-    a.ins("nop")
-    a.ins(f"sethi {(HI >> 10) & 0x3FFFFF}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND")
-    a.ins("nop")
-    a.ins("stb %g4, [%g5]")                                     # write value_low
+    a.label("SF4")   # write value_low byte at addr, only in the writable BSS window, addr += 1
+    a.ins(f"sethi {_hi(WLO)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("blu", "SEND"); a.ins("nop")
+    a.ins(f"sethi {_hi(WHI)}, %g2"); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND"); a.ins("nop")
+    a.ins("stb %g4, [%g5]")                                      # write value_low
     a.ins(f"sethi {VHI}, %g2"); a.ins(f"or %g2, {VLO}, %g2"); a.ins("add %g5, 1, %g5"); a.ins("st %g5, [%g2]")
     a.label("SEND")
     a.ins("retl"); a.ins("mov 1, %o0")
