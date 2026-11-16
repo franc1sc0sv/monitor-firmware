@@ -36,17 +36,19 @@ GETVCP, SETVCP = 0x1882AC, 0x1869BC
 GET_CS, SET_CS = 0x103EBC, 0x104170
 REGION = 0x1E14EC                      # verified-dead, 0x280 bytes
 RELOC = 0x320                          # code runs at file VA + 0x320 (hardware-confirmed delta)
-CODE_MAX = 0x258                       # hook code budget; the region tail holds the slots
-# 1020.0: slots live in the tail of the verified-dead hook region (runtime address). The 1019.x slots at 0xA8039A00 sat
-# inside a live settings table (hardware-confirmed 2026-11-16), so every SetAddr / F4 corrupted settings RAM.
-SLOTS = REGION + RELOC + CODE_MAX
+CODE_MAX = 0x280                       # whole verified-dead region
+# Slots history: 1019.x used 0xA8039A00, inside a live settings table (hardware-confirmed 2026-11-16). 1020.0 put them
+# in the dead code region, but code RAM ignores stores (hardware-confirmed: F0/F1 had no effect, F3 then trapped on
+# the stale unaligned ADDR). 1020.1: the top 0x40 bytes of the largest unreferenced BSS gap (0xA803C3E8..0xA803D000;
+# arrays grow up from their base, so the end just below the next referenced symbol is the least exposed spot).
+SLOTS = 0xA803CFC0
 ADDR, TARG, ARG0, RESULT, SAVED, DELTA = SLOTS, SLOTS + 4, SLOTS + 8, SLOTS + 0x18, SLOTS + 0x1C, SLOTS + 0x20
 VALW = SLOTS + 0x24                    # 32-bit value staged for the F6 word-write
 SPI_LO, SPI_HI = 0xCF03C000, 0xCF03D000  # SPI controller MMIO window (F6 word-write guard)
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
 WLO, WHI = SLOTS, SLOTS + 0x28         # F4 byte-write window: the slots only
 DRAM_LO, DRAM_HI = 0xCF011F80, 0xCF011FC0  # DRAM access port (second F6 window; see firmware-re.md)
-NEW_VERSION = "1020.0"           # slots out of settings RAM; F6 also reaches the DRAM access port
+NEW_VERSION = "1020.1"           # slots out of settings RAM; F6 also reaches the DRAM access port
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 

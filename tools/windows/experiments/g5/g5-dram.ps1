@@ -1,7 +1,7 @@
 # DRAM access port over DDC (dev hook 1020.0+: F6 may write 0xCF011F80..0xCF011FBF). Dot-source after g5-ddc.ps1.
 # Port (decoded from SPARC 0x1413EC / 0x1415C8): line address (32-byte lines) in A0/A4/A8/AC (byte 0..3);
 # read = F84:=0x80, F8C:=0x80, wait F90==0x80, then 32 bytes from F94; write = F84:=0x80, then 32 bytes to F88.
-$script:SL20 = [Convert]::ToUInt32('001E1A64', 16)          # 1020.0 slots: ADDR +0 ... VALW +0x24
+$script:SL20 = [Convert]::ToUInt32('A803CFC0', 16)          # 1020.1 slots: ADDR +0 ... VALW +0x24
 $script:VALW20 = [UInt32]($script:SL20 + 0x24)
 function P([string]$h) { [Convert]::ToUInt32($h, 16) }
 function WrW20([UInt32]$a, [UInt32]$v) {                      # stage VALW with 4 F4 bytes, verify, then F6 to $a
