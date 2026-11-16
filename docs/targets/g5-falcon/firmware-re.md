@@ -286,3 +286,15 @@ Fallback rescue: the stock `.img` flashed over USB.
 Need a way to read the raw SPI flash over DDC: either the flash is memory-mapped (read directly, may need widening the
 read guard) or call a firmware SPI-read routine into a RAM buffer, then memory-read the buffer. Then dump all 8 MB and
 verify. All read-only.
+
+## BREAKTHROUGH: SPI controller is MMIO-mapped (drivable over DDC)
+`0x126A2C` is a register-access dispatcher: `reg_op(idx<=0x11, v1, v2)` jumps via a table (base `0x49a<<10|0x78 =
+0x126A78`) and writes the **SPI controller MMIO registers at ~0xCF03Cxxx** (`sethi 0x33c0f0 -> 0xCF03C000`, handlers
+store to 0xCF03C2C0, 0xCF03C31C, ...). The low-level SPI helpers (0x1509B0/E8, 0x15E560) toggle chip-select and push
+bytes via this and the 0xA002xxxx HAL. So the SPI flash controller can be driven **directly by memory read/write to
+0xCF03Cxxx over DDC** — raw SPI commands (JEDEC 0x9F, RDSR 0x05, READ 0x03, WREN 0x06, PP 0x02, SE 0x20) at arbitrary
+addresses. This is the cleanest path (no cross-region call relocation): read for backup/verify, write for bank B.
+
+Plan: (1) map the SPI reg layout from 0x126A2C's jump table (cmd/data/status/CS regs); (2) a hook that allows R/W of
+the SPI MMIO window only; (3) read-only JEDEC/RDSR proof over DDC; (4) flash read (backup/verify); (5) bank-B
+erase/program with the hard address guard; (6) activation last. All writes gated per the safety protocol.
