@@ -49,7 +49,7 @@ assert SPI_LO % 0x400 == 0 and SPI_HI % 0x400 == 0, "SPI bounds are compared wit
 RLO, RHI = 0x100000, 0x2F8000          # read window (code/data image)
 WLO, WHI = SLOTS, SLOTS + 0x28         # F4 byte-write window: the slots only
 DRAM_LO, DRAM_HI = 0xCF011F80, 0xCF011FC0  # DRAM access port (second F6 window; see firmware-re.md)
-NEW_VERSION = "1020.3"           # F2/F5 dropped for space; F7 = in-chip DRAM header scan           # slots out of settings RAM; F6 also reaches the DRAM access port
+NEW_VERSION = "1020.4"           # F7 = in-chip DRAM byte-sum (verifies a staged image); A0 order fixed           # slots out of settings RAM; F6 also reaches the DRAM access port
 _hi = lambda a: (a >> 10) & 0x3FFFFF
 _lo = lambda a: a & 0x3FF
 
@@ -125,13 +125,14 @@ def build() -> tuple[int, bytes, int]:
     a.addr("%g2", WHI); a.ins("subcc %g5, %g2, %g0"); a.br("bgeu", "SEND"); a.ins("nop")
     a.ins("stb %g4, [%g5]"); a.addr("%g2", ADDR); a.ins("add %g5, 1, %g5"); a.ins("st %g5, [%g2]")
     a.label("SEND"); a.ins("retl"); a.ins("mov 1, %o0")
-    a.label("SF7")   # in-chip DRAM scan: from line ARG0, ARG1 probes, stride ARG2 (32-byte lines); stops at the first
-    # line whose first 4 bytes are "\x7FNVT" (update-file header). RESULT = that line or 0xFFFFFFFF; ARG0 = resume line;
-    # DELTA = last word read. Port sequence mirrors SPARC 0x1413EC (A4/A8/AC, F84, F8C, wait F90, A0, 4x F94).
+    a.label("SF7")   # in-chip DRAM byte-sum: ARG1 lines from line ARG0, stride ARG2 (32-byte lines). DELTA = sum32 of all
+    # bytes read, ARG0 = next line. Port order: A0..AC first, then F84/F8C trigger, wait F90 == 0x80, 32 x F94 (1020.3
+    # wrote A0 after the trigger and read with the previous low byte).
     a.addr("%g2", ARG0); a.ins("ld [%g2], %o2"); a.ins("ld [%g2+4], %o3"); a.ins("ld [%g2+8], %o4")
-    a.ins(f"sethi {_hi(0xCF011C00)}, %g1"); a.ins("mov -1, %o5")                 # o5 = result (not found)
+    a.ins(f"sethi {_hi(0xCF011C00)}, %g1"); a.ins("mov 0, %o5")                  # o5 = running sum
     a.label("S7L")
     a.ins("cmp %o3, 0"); a.br("be", "S7N"); a.ins("nop")
+    a.ins("st %o2, [%g1+0x3A0]")
     a.ins("srl %o2, 8, %g3"); a.ins("st %g3, [%g1+0x3A4]")
     a.ins("srl %o2, 16, %g3"); a.ins("st %g3, [%g1+0x3A8]")
     a.ins("srl %o2, 24, %g3"); a.ins("st %g3, [%g1+0x3AC]")
@@ -141,17 +142,13 @@ def build() -> tuple[int, bytes, int]:
     a.ins("ld [%g1+0x390], %g5"); a.ins("and %g5, 0xFF, %g5"); a.ins("cmp %g5, 0x80"); a.br("be", "S7R"); a.ins("nop")
     a.ins("subcc %g4, 1, %g4"); a.br("bne", "S7W"); a.ins("nop")
     a.label("S7R")
-    a.ins("st %o2, [%g1+0x3A0]")
-    a.ins("mov 4, %g2")                                     # 4 bytes; 4 shifts by 8 flush g4, no clear needed
+    a.ins("mov 32, %g2")
     a.label("S7B")
-    a.ins("ld [%g1+0x394], %g5"); a.ins("and %g5, 0xFF, %g5"); a.ins("sll %g4, 8, %g4"); a.ins("or %g4, %g5, %g4")
+    a.ins("ld [%g1+0x394], %g5"); a.ins("and %g5, 0xFF, %g5"); a.ins("add %o5, %g5, %o5")
     a.ins("subcc %g2, 1, %g2"); a.br("bne", "S7B"); a.ins("nop")
-    a.addr("%g5", 0x7F4E5654); a.ins("cmp %g4, %g5"); a.br("be", "S7F"); a.ins("nop")
     a.ins("add %o2, %o4, %o2"); a.ins("sub %o3, 1, %o3"); a.br("ba", "S7L"); a.ins("nop")
-    a.label("S7F")
-    a.ins("mov %o2, %o5")
     a.label("S7N")
-    a.addr("%g2", ARG0); a.ins("st %o2, [%g2]"); a.ins("st %o5, [%g2+0x10]"); a.ins("st %g4, [%g2+0x18]")  # ARG0, RESULT, DELTA
+    a.addr("%g2", ARG0); a.ins("st %o2, [%g2]"); a.ins("st %o5, [%g2+0x18]")    # ARG0 = next line, DELTA = sum
     a.ins("retl"); a.ins("mov 1, %o0")
     a.label("SF6")   # write 32-bit VALW to [ADDR], only if ADDR is in the SPI controller MMIO window
     a.addr("%g2", ADDR); a.ins("ld [%g2], %g5")            # g5 = target MMIO addr
