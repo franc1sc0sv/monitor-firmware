@@ -36,7 +36,12 @@ uv run ruff check && uv run ruff format --check && uv run pyright
 uv run mfw identify|verify|check-listing|build ...      # docs/guides/build.md
 uv run monitor-events [--simulate] status|history|watch|switch|serve|vcp|peek|poke|apply|dump-settings
 tools/ghidra/run-headless.sh assemble <patch.s> <out.lst>                  # docs/guides/assemble.md
+cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
+
+Rust crate `crates/monitor-ddc` (used by Tandem, pinned by commit): edition 2024, `thiserror`, no `unwrap`/`expect`
+outside tests, `unsafe` only for FFI with a `// SAFETY:` comment, OS code behind the `DdcBus` trait and tested on
+Linux through `fake::FakeBus`. It never sends a Set or a vendor code before the read-only probe (Get 0xEA) passes.
 
 ## Where things are
 
