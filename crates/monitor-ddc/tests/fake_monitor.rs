@@ -9,7 +9,7 @@ use monitor_ddc::fake::{
 };
 use monitor_ddc::{
     Clock, DdcBus, DdcError, EventKind, Incompatibility, Input, Link, MonitorHandle, Probe,
-    StandardMonitor, VCP_RING, Verdict,
+    StandardMonitor, VCP_RING, VcpReply, Verdict,
 };
 use proptest::prelude::*;
 
@@ -305,7 +305,101 @@ fn event_kinds_keep_unknown_ids_and_setting_offsets() {
     assert_eq!(e.setting_offset(), Some(0x1D3));
 }
 
+#[test]
+fn garbage_reply_to_0xea_is_not_compatible() {
+    let b = bus();
+    let h = b.add(FakeMonitorConfig::new(Personality::Garbage));
+    assert!(matches!(link(&b, h).probe(), Probe::NotCompatible(_)));
+    assert!(link(&b, h).open_standard().is_err());
+    assert!(only_probe_reads(&b.ops_for(h)));
+}
+
+#[test]
+fn a_late_verdict_of_an_earlier_switch_is_not_taken() {
+    let b = bus();
+    let mut config = FakeMonitorConfig::new(Personality::Standard);
+    // Slower than the timeout: the HDMI verdict lands while the rollback to DP is waiting.
+    config.switch_delay = Duration::from_secs(13);
+    let (_, m) = standard(&b, config);
+    assert_eq!(
+        m.switch_input(Input::Hdmi, TIMEOUT).unwrap(),
+        Verdict::TimedOut
+    );
+    assert_eq!(
+        m.switch_input(Input::DisplayPort, Duration::from_secs(15))
+            .unwrap(),
+        Verdict::Confirmed {
+            input: Some(Input::DisplayPort)
+        }
+    );
+}
+
+#[test]
+fn a_late_verdict_never_confirms_the_wrong_input() {
+    let b = bus();
+    let mut config = FakeMonitorConfig::new(Personality::Standard);
+    config.switch_delay = Duration::from_secs(13);
+    let (_, m) = standard(&b, config);
+    assert_eq!(
+        m.switch_input(Input::Hdmi, TIMEOUT).unwrap(),
+        Verdict::TimedOut
+    );
+    // The DP verdict comes after this deadline; the HDMI one before it must be ignored.
+    assert_eq!(
+        m.switch_input(Input::DisplayPort, TIMEOUT).unwrap(),
+        Verdict::TimedOut
+    );
+}
+
+#[test]
+fn read_events_recovers_after_a_monitor_reboot() {
+    let b = bus();
+    let (h, m) = standard(&b, FakeMonitorConfig::new(Personality::Standard));
+    for i in 0..500u16 {
+        b.osd_switch(
+            h,
+            if i % 2 == 0 {
+                Input::Hdmi
+            } else {
+                Input::DisplayPort
+            },
+        );
+    }
+    // The monitor has been up for a minute when the cursor is taken, then power-cycles.
+    b.clock().advance(Duration::from_secs(60));
+    let mut cursor = m.cursor().unwrap();
+    b.clock().advance(Duration::from_secs(1));
+    b.reboot(h);
+    b.osd_switch(h, Input::Hdmi);
+    b.osd_switch(h, Input::DisplayPort);
+    let batch = m.read_events(&mut cursor).unwrap();
+    assert!(batch.rebooted);
+    let kinds: Vec<_> = batch.events.iter().map(|e| e.kind()).collect();
+    assert_eq!(
+        kinds,
+        [EventKind::Boot, EventKind::InputPort, EventKind::InputPort]
+    );
+    assert_eq!(batch.events[0].seq, 1);
+    // And keeps working afterwards.
+    b.osd_switch(h, Input::Hdmi);
+    let batch = m.read_events(&mut cursor).unwrap();
+    assert!(!batch.rebooted);
+    assert_eq!(batch.events.len(), 1);
+}
+
 proptest! {
+    #[test]
+    fn garbage_monitors_only_ever_see_the_probe_read(mh in any::<u8>(), ml in any::<u8>(), current in any::<u16>()) {
+        prop_assume!(!(mh == 0x40 && ml == 2));
+        let b = bus();
+        let mut config = FakeMonitorConfig::new(Personality::Garbage);
+        config.garbage = VcpReply { max: u16::from_be_bytes([mh, ml]), current };
+        let h = b.add(config);
+        prop_assert!(matches!(link(&b, h).probe(), Probe::NotCompatible(_)));
+        prop_assert!(link(&b, h).open_standard().is_err());
+        prop_assert!(only_probe_reads(&b.ops_for(h)));
+    }
+
     #[test]
     fn read_events_never_skips_or_repeats(bursts in proptest::collection::vec(0u16..150, 1..6)) {
         let b = bus();

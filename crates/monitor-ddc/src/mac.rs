@@ -5,7 +5,7 @@
 //! Known limit (confirmed on the 34"): over HDMI the monitor only answers while HDMI is the active input.
 
 use std::ffi::{CStr, c_char, c_void};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -150,7 +150,8 @@ impl Api {
     fn edid(&self, avs: CFTypeRef) -> Option<Vec<u8>> {
         let copy = self.av_copy_edid?;
         let mut data: CFTypeRef = std::ptr::null();
-        // SAFETY: `avs` is a live IOAVService; `data` receives a +1 CFData that is released below.
+        // SAFETY: `avs` was just created by `monitors()`, which holds the state lock, so it is live;
+        // `data` receives a +1 CFData that is released below.
         unsafe {
             if copy(avs, &mut data) != 0 || data.is_null() {
                 return None;
@@ -166,6 +167,12 @@ impl Api {
             Some(bytes)
         }
     }
+}
+
+/// A monitor's service together with the bus lock that keeps it alive.
+struct Locked<'a> {
+    _guard: MutexGuard<'a, State>,
+    avs: CFTypeRef,
 }
 
 #[derive(Default)]
@@ -190,24 +197,34 @@ impl MacBus {
         })
     }
 
-    fn service(&self, monitor: MonitorHandle) -> Result<CFTypeRef, DdcError> {
-        let s = self
-            .state
+    fn lock(&self) -> Result<MutexGuard<'_, State>, DdcError> {
+        self.state
             .lock()
-            .map_err(|_| DdcError::NoChannel("bus state poisoned".into()))?;
-        s.open
+            .map_err(|_| DdcError::NoChannel("bus state poisoned".into()))
+    }
+
+    /// Locks the bus and finds the monitor's service. The lock stays held as long as the returned
+    /// [`Locked`] lives, which covers the whole request: `monitors()` and `Drop` release services only
+    /// under this lock, so the service cannot be freed mid-I/O. It also keeps each I2C write/read pair
+    /// (and multi-request sequences from other threads) from interleaving.
+    fn service(&self, monitor: MonitorHandle) -> Result<Locked<'_>, DdcError> {
+        let guard = self.lock()?;
+        let avs = guard
+            .open
             .iter()
             .find(|(h, _)| *h == monitor)
             .map(|(_, raw)| *raw as CFTypeRef)
-            .ok_or(DdcError::UnknownMonitor(monitor))
+            .ok_or(DdcError::UnknownMonitor(monitor))?;
+        Ok(Locked { _guard: guard, avs })
     }
 
-    fn write(&self, avs: CFTypeRef, msg: &[u8], code: u8) -> Result<(), DdcError> {
+    fn write(&self, svc: &Locked<'_>, msg: &[u8], code: u8) -> Result<(), DdcError> {
         for _ in 0..WRITE_TRIES {
-            // SAFETY: `avs` is a live IOAVService and `msg` is valid for `msg.len()` bytes.
+            // SAFETY: `svc.avs` is in `state.open` and `svc` holds the state lock, so the service is not
+            // released during the call; `msg` is valid for `msg.len()` bytes.
             let rc = unsafe {
                 (self.api.av_write)(
-                    avs,
+                    svc.avs,
                     u32::from(wire::DDC_ADDRESS),
                     u32::from(wire::HOST_ADDRESS),
                     msg.as_ptr().cast(),
@@ -225,12 +242,13 @@ impl MacBus {
         })
     }
 
-    fn read(&self, avs: CFTypeRef, len: usize, code: u8) -> Result<Vec<u8>, DdcError> {
+    fn read(&self, svc: &Locked<'_>, len: usize, code: u8) -> Result<Vec<u8>, DdcError> {
         let mut buf = vec![0u8; len];
-        // SAFETY: `avs` is a live IOAVService and `buf` has `len` writable bytes.
+        // SAFETY: `svc.avs` is in `state.open` and `svc` holds the state lock, so the service is not
+        // released during the call; `buf` has `len` writable bytes.
         let rc = unsafe {
             (self.api.av_read)(
-                avs,
+                svc.avs,
                 u32::from(wire::DDC_ADDRESS),
                 u32::from(wire::HOST_ADDRESS),
                 buf.as_mut_ptr().cast(),
@@ -263,10 +281,7 @@ impl Drop for MacBus {
 
 impl DdcBus for MacBus {
     fn monitors(&self) -> Result<Vec<MonitorInfo>, DdcError> {
-        let mut s = self
-            .state
-            .lock()
-            .map_err(|_| DdcError::NoChannel("bus state poisoned".into()))?;
+        let mut s = self.lock()?;
         let mut old = std::mem::take(&mut s.open);
         self.release_all(&mut old);
         let mut iter = 0u32;
@@ -319,30 +334,30 @@ impl DdcBus for MacBus {
     }
 
     fn get_vcp(&self, monitor: MonitorHandle, code: u8) -> Result<VcpReply, DdcError> {
-        let avs = self.service(monitor)?;
-        self.write(avs, &wire::get_vcp_request(code), code)?;
+        let svc = self.service(monitor)?;
+        self.write(&svc, &wire::get_vcp_request(code), code)?;
         sleep(REPLY_WAIT);
-        let buf = self.read(avs, wire::VCP_REPLY_LEN + 1, code)?;
+        let buf = self.read(&svc, wire::VCP_REPLY_LEN + 1, code)?;
         wire::parse_vcp_reply(&buf, code)
     }
 
     fn set_vcp(&self, monitor: MonitorHandle, code: u8, value: u16) -> Result<(), DdcError> {
-        let avs = self.service(monitor)?;
-        self.write(avs, &wire::set_vcp_request(code, value), code)?;
+        let svc = self.service(monitor)?;
+        self.write(&svc, &wire::set_vcp_request(code, value), code)?;
         sleep(REPLY_WAIT);
         Ok(())
     }
 
     fn capabilities(&self, monitor: MonitorHandle) -> Result<String, DdcError> {
-        let avs = self.service(monitor)?;
+        let svc = self.service(monitor)?;
         let code = wire::CAPABILITIES_CODE;
         let mut out = Vec::new();
         for _ in 0..MAX_FRAGMENTS {
             let offset = u16::try_from(out.len())
                 .map_err(|_| DdcError::Protocol("capabilities too long".into()))?;
-            self.write(avs, &wire::capabilities_request(offset), code)?;
+            self.write(&svc, &wire::capabilities_request(offset), code)?;
             sleep(REPLY_WAIT);
-            let buf = self.read(avs, wire::CAPABILITIES_REPLY_LEN, code)?;
+            let buf = self.read(&svc, wire::CAPABILITIES_REPLY_LEN, code)?;
             let chunk = wire::parse_capabilities_fragment(&buf, offset)?;
             if chunk.is_empty() {
                 break;

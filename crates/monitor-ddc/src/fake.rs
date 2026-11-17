@@ -50,6 +50,9 @@ pub enum Personality {
     Factory,
     /// Listed by the OS but never answers (powered off, inactive input).
     Disconnected,
+    /// Stock firmware that answers every Get with result code 0 and the same junk
+    /// ([`FakeMonitorConfig::garbage`]), as some monitors do for codes they do not know.
+    Garbage,
 }
 
 /// What a standard monitor does after a Set 0x60.
@@ -76,6 +79,8 @@ pub struct FakeMonitorConfig {
     pub switch: SwitchBehavior,
     /// Requests lost right after a Set 0x60 (the link retrains while the input changes).
     pub retrain_drops: u32,
+    /// What a [`Personality::Garbage`] monitor answers to every Get.
+    pub garbage: VcpReply,
 }
 
 impl FakeMonitorConfig {
@@ -90,6 +95,10 @@ impl FakeMonitorConfig {
             switch_delay: Duration::from_millis(300),
             switch: SwitchBehavior::Done,
             retrain_drops: 0,
+            garbage: VcpReply {
+                max: 0xFF05,
+                current: 0x1234,
+            },
         }
     }
 }
@@ -149,6 +158,8 @@ struct FakeMonitor {
     pending: Vec<(Duration, Pending)>,
     /// Requests still to drop with no reply (a link retraining, a noisy cable).
     drop_next: u32,
+    /// When the monitor last booted: its clock and event times count from here.
+    booted_at: Duration,
 }
 
 impl FakeMonitor {
@@ -163,6 +174,7 @@ impl FakeMonitor {
             brightness: 80,
             pending: Vec::new(),
             drop_next: 0,
+            booted_at: now,
         };
         m.log(now, 0x00, 0, 0);
         m
@@ -170,7 +182,7 @@ impl FakeMonitor {
 
     fn log(&mut self, now: Duration, id: u8, old: u8, new: u8) {
         self.seq = self.seq.wrapping_add(1);
-        let time = ((now.as_millis() / 10) & 0xFF_FFFF) as u32;
+        let time = ((now.saturating_sub(self.booted_at).as_millis() / 10) & 0xFF_FFFF) as u32;
         self.ring[usize::from(self.seq) % RING] = Record {
             seq: self.seq,
             id,
@@ -220,13 +232,26 @@ impl FakeMonitor {
         drop
     }
 
+    /// Power cycle: RAM is lost, the sequence starts over and the clock restarts.
+    fn reboot(&mut self, now: Duration) {
+        self.seq = 0;
+        self.ring = [Record::default(); RING];
+        self.cursor = 0;
+        self.pending.clear();
+        self.booted_at = now;
+        self.log(now, 0x00, 0, 0);
+    }
+
     fn get(&mut self, code: u8, now: Duration) -> Result<VcpReply, DdcError> {
         if self.dropped() {
             return Err(DdcError::NoReply { code });
         }
+        if self.config.personality == Personality::Garbage {
+            return Ok(self.config.garbage);
+        }
         let r = VcpReply::from_bytes;
         let rec = self.ring[usize::from(self.cursor) % RING];
-        let clock = ((now.as_millis() / 10) & 0xFFFF_FFFF) as u32;
+        let clock = ((now.saturating_sub(self.booted_at).as_millis() / 10) & 0xFFFF_FFFF) as u32;
         match code {
             0x10 => Ok(VcpReply {
                 max: 100,
@@ -303,6 +328,7 @@ impl FakeMonitor {
     fn capabilities(&self) -> Result<String, DdcError> {
         let vcp = match self.config.personality {
             Personality::Disconnected => return Err(DdcError::NoReply { code: 0xF3 }),
+            Personality::Garbage => return Ok("\u{fffd}".into()),
             Personality::Standard => {
                 "02 04 05 08 10 12 14(05 08 0B) 16 18 1A 60(06 09) D6(01 05) EA EB EC ED EE EF"
             }
@@ -385,6 +411,15 @@ impl FakeBus {
         let _ = self.with(handle, |m| {
             m.tick(now);
             m.set_input(now, to);
+            Ok(())
+        });
+    }
+
+    /// Power-cycles the monitor (sequence back to 0, empty ring, `boot` event).
+    pub fn reboot(&self, handle: MonitorHandle) {
+        let now = self.clock.now();
+        let _ = self.with(handle, |m| {
+            m.reboot(now);
             Ok(())
         });
     }

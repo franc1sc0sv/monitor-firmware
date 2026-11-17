@@ -1,7 +1,7 @@
 //! Windows backend: dxva2 (Monitor Configuration API) for VCP, SetupAPI + registry for the EDID.
 //! Works with any GPU driver; DDC over DisplayPort stays alive whatever input the monitor shows.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use windows::Win32::Devices::DeviceAndDriverInstallation::{
     DICS_FLAG_GLOBAL, DIGCF_DEVICEINTERFACE, DIGCF_PRESENT, DIREG_DEV, HDEVINFO, SP_DEVINFO_DATA,
@@ -50,12 +50,19 @@ impl WindowsBus {
         Self::default()
     }
 
-    fn handle(&self, monitor: MonitorHandle) -> Result<HANDLE, DdcError> {
-        let s = self
-            .state
+    /// The state lock is held for the whole of every request: that is what keeps a handle alive while
+    /// dxva2 uses it (`monitors()` and `Drop` destroy handles only under this lock). It also serializes
+    /// requests from different threads, which DDC/CI needs anyway.
+    fn lock(&self) -> Result<MutexGuard<'_, State>, DdcError> {
+        self.state
             .lock()
-            .map_err(|_| DdcError::NoChannel("bus state poisoned".into()))?;
-        s.open
+            .map_err(|_| DdcError::NoChannel("bus state poisoned".into()))
+    }
+}
+
+impl State {
+    fn handle(&self, monitor: MonitorHandle) -> Result<HANDLE, DdcError> {
+        self.open
             .iter()
             .find(|(h, _)| *h == monitor)
             .map(|(_, raw)| HANDLE(*raw as *mut _))
@@ -73,10 +80,7 @@ impl Drop for WindowsBus {
 
 impl DdcBus for WindowsBus {
     fn monitors(&self) -> Result<Vec<MonitorInfo>, DdcError> {
-        let mut s = self
-            .state
-            .lock()
-            .map_err(|_| DdcError::NoChannel("bus state poisoned".into()))?;
+        let mut s = self.lock()?;
         destroy_all(&mut s.open);
         let mut out = Vec::new();
         for hmon in display_monitors() {
@@ -97,10 +101,11 @@ impl DdcBus for WindowsBus {
     }
 
     fn get_vcp(&self, monitor: MonitorHandle, code: u8) -> Result<VcpReply, DdcError> {
-        let h = self.handle(monitor)?;
+        let state = self.lock()?;
+        let h = state.handle(monitor)?;
         let (mut current, mut max) = (0u32, 0u32);
-        // SAFETY: `h` is a live physical monitor handle owned by this bus; the out pointers are valid
-        // locals for the duration of the call.
+        // SAFETY: `h` is in `state.open` and `state` stays locked until this function returns, so it cannot be destroyed meanwhile;
+        // the out pointers are valid locals for the duration of the call.
         let ok =
             unsafe { GetVCPFeatureAndVCPFeatureReply(h, code, None, &mut current, Some(&mut max)) };
         if ok == 0 {
@@ -113,8 +118,9 @@ impl DdcBus for WindowsBus {
     }
 
     fn set_vcp(&self, monitor: MonitorHandle, code: u8, value: u16) -> Result<(), DdcError> {
-        let h = self.handle(monitor)?;
-        // SAFETY: `h` is a live physical monitor handle owned by this bus.
+        let state = self.lock()?;
+        let h = state.handle(monitor)?;
+        // SAFETY: `h` is in `state.open` and `state` stays locked until this function returns, so it cannot be destroyed meanwhile.
         let ok = unsafe { SetVCPFeature(h, code, u32::from(value)) };
         if ok == 0 {
             return Err(last_error(code));
@@ -123,14 +129,17 @@ impl DdcBus for WindowsBus {
     }
 
     fn capabilities(&self, monitor: MonitorHandle) -> Result<String, DdcError> {
-        let h = self.handle(monitor)?;
+        let state = self.lock()?;
+        let h = state.handle(monitor)?;
         let mut len = 0u32;
-        // SAFETY: `h` is a live physical monitor handle; `len` is a valid out pointer.
+        // SAFETY: `h` is in `state.open` and `state` stays locked until this function returns, so it cannot be destroyed meanwhile;
+        // `len` is a valid out pointer.
         if unsafe { GetCapabilitiesStringLength(h, &mut len) } == 0 || len == 0 {
             return Err(last_error(0xF3));
         }
         let mut buf = vec![0u8; len as usize];
-        // SAFETY: `buf` is exactly the length dxva2 asked for and outlives the call.
+        // SAFETY: `h` is still locked as above; `buf` is exactly the length dxva2 asked for and outlives
+        // the call.
         if unsafe { CapabilitiesRequestAndCapabilitiesReply(h, &mut buf) } == 0 {
             return Err(last_error(0xF3));
         }

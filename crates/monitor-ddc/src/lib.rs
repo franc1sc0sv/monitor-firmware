@@ -32,8 +32,8 @@ pub use edid::{Edid, EdidError, MonitorId};
 pub use error::DdcError;
 pub use protocol::{
     Event, EventBatch, EventCursor, EventKind, Incompatibility, Input, Link, LinkConfig, LiveState,
-    MIN_PROTOCOL, Probe, RingInfo, StandardMonitor, VCP_CLOCK, VCP_CURSOR, VCP_INPUT, VCP_LIVE,
-    VCP_RECORD, VCP_RECORD_TIME, VCP_RING, Verdict,
+    MIN_PROTOCOL, Probe, RING_SIZE, RingInfo, StandardMonitor, VCP_CLOCK, VCP_CURSOR, VCP_INPUT,
+    VCP_LIVE, VCP_RECORD, VCP_RECORD_TIME, VCP_RING, Verdict,
 };
 
 #[cfg(target_os = "macos")]

@@ -21,6 +21,11 @@ pub const VCP_LIVE: u8 = 0xEE;
 pub const VCP_CLOCK: u8 = 0xEF;
 /// Oldest protocol version (Get 0xEA ML) this crate speaks.
 pub const MIN_PROTOCOL: u8 = 2;
+/// Newest protocol version this crate speaks. The version only changes when the meaning or layout of an
+/// existing code changes, so a newer one is not assumed to be compatible.
+pub const MAX_PROTOCOL: u8 = 2;
+/// Ring size the firmware reports in Get 0xEA MH. Anything else is not the firmware's ring.
+pub const RING_SIZE: u8 = 0x40;
 
 /// A monitor input, in the firmware's encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -112,20 +117,26 @@ impl RingInfo {
 pub enum Incompatibility {
     /// Get 0xEA is unsupported: stock firmware (or a monitor without the patch).
     NoEventRing,
-    /// The ring answers, but with an older protocol version.
-    OldProtocol(u8),
-    /// The ring answers with size 0: not the firmware's ring.
-    EmptyRing,
+    /// The ring answers, but with a protocol version outside `MIN_PROTOCOL..=MAX_PROTOCOL`.
+    UnsupportedProtocol(u8),
+    /// 0xEA answers with a ring size other than [`RING_SIZE`]: junk from a monitor that does not know
+    /// the code.
+    UnknownRing(u8),
 }
 
 impl fmt::Display for Incompatibility {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Incompatibility::NoEventRing => f.write_str("VCP 0xEA unsupported (stock firmware)"),
-            Incompatibility::OldProtocol(v) => {
-                write!(f, "protocol {v}, need {MIN_PROTOCOL} or newer")
+            Incompatibility::UnsupportedProtocol(v) => {
+                write!(
+                    f,
+                    "protocol {v}, this crate speaks {MIN_PROTOCOL}..={MAX_PROTOCOL}"
+                )
             }
-            Incompatibility::EmptyRing => f.write_str("VCP 0xEA reports an empty event ring"),
+            Incompatibility::UnknownRing(size) => {
+                write!(f, "VCP 0xEA reports ring size 0x{size:02x}")
+            }
         }
     }
 }
@@ -248,10 +259,12 @@ impl Event {
     }
 }
 
-/// Client-side position in the event stream: the last sequence number already read.
+/// Client-side position in the event stream: the last sequence number already read, and the monitor
+/// clock (0xEF) at that read, which tells a reboot (clock went back) from a sequence wrap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EventCursor {
     pub last: u16,
+    pub clock_10ms: Option<u32>,
 }
 
 /// Events read in one call. `lost > 0` means the ring overflowed since the previous read.
@@ -259,6 +272,9 @@ pub struct EventCursor {
 pub struct EventBatch {
     pub events: Vec<Event>,
     pub lost: u16,
+    /// The monitor rebooted since the previous read: its sequence started over and `events` begins
+    /// with what it logged after booting.
+    pub rebooted: bool,
 }
 
 /// Firmware verdict for an input switch.
@@ -336,10 +352,11 @@ impl Link {
         match self.get(VCP_RING) {
             Ok(reply) => {
                 let info = RingInfo::from_reply(reply);
-                if info.protocol < MIN_PROTOCOL {
-                    Probe::NotCompatible(Incompatibility::OldProtocol(info.protocol))
-                } else if info.ring_size == 0 {
-                    Probe::NotCompatible(Incompatibility::EmptyRing)
+                // The ring size first: it is the strongest sign that the reply is not junk.
+                if info.ring_size != RING_SIZE {
+                    Probe::NotCompatible(Incompatibility::UnknownRing(info.ring_size))
+                } else if !(MIN_PROTOCOL..=MAX_PROTOCOL).contains(&info.protocol) {
+                    Probe::NotCompatible(Incompatibility::UnsupportedProtocol(info.protocol))
                 } else {
                     Probe::Compatible(info)
                 }
@@ -455,17 +472,24 @@ impl StandardMonitor {
 
     /// A cursor at the newest event: the next read returns only what happens from now on.
     pub fn cursor(&self) -> Result<EventCursor, DdcError> {
+        let clock = self.clock_10ms()?;
         Ok(EventCursor {
             last: self.ring_info()?.newest,
+            clock_10ms: Some(clock),
         })
     }
 
     /// Reads every event after `cursor` and advances it. The cursor only moves when the whole batch was
     /// read, so after an error the next call reads the same events again instead of skipping them.
+    ///
+    /// A reboot restarts the sequence at 0. It is detected by the monitor clock going back (read before
+    /// the ring, so a reboot in between is caught on the next call); the batch then starts at seq 1.
     pub fn read_events(&self, cursor: &mut EventCursor) -> Result<EventBatch, DdcError> {
+        let clock = self.clock_10ms()?;
         let info = self.ring_info()?;
         let ring = u16::from(info.ring_size);
-        let mut last = cursor.last;
+        let rebooted = cursor.clock_10ms.is_some_and(|before| clock < before);
+        let mut last = if rebooted { 0 } else { cursor.last };
         let mut gap = info.newest.wrapping_sub(last);
         let mut lost = 0;
         if gap > ring {
@@ -478,17 +502,29 @@ impl StandardMonitor {
             last = last.wrapping_add(1);
             events.push(self.event(last)?);
         }
-        cursor.last = last;
-        Ok(EventBatch { events, lost })
+        *cursor = EventCursor {
+            last,
+            clock_10ms: Some(clock),
+        };
+        Ok(EventBatch {
+            events,
+            lost,
+            rebooted,
+        })
     }
 
     /// Set 0x60 and wait for the firmware's own verdict (`switch-done` / `switch-failed`).
-    /// Read errors while waiting are expected (the link retrains) and only end the wait at the deadline.
+    ///
+    /// Only a verdict about this request counts: it must come after the `ddc-switch-request` for
+    /// `target`, and name `target` (`new` for done, `old` for failed). A late verdict of an earlier switch
+    /// (for example the one a rollback follows) is skipped. Read errors while waiting are expected (the
+    /// link retrains) and only end the wait at the deadline.
     pub fn switch_input(&self, target: Input, timeout: Duration) -> Result<Verdict, DdcError> {
         let clock = &self.link.clock;
         let mut last = self.ring_info()?.newest;
         self.link.set(VCP_INPUT, target.vcp())?;
         let deadline = clock.now() + timeout;
+        let mut requested = false;
         while clock.now() < deadline {
             clock.sleep(self.link.config.poll_interval);
             let Ok(info) = self.ring_info() else { continue };
@@ -496,15 +532,19 @@ impl StandardMonitor {
                 let next = last.wrapping_add(1);
                 let Ok(e) = self.event(next) else { break };
                 last = next;
+                let about_target = |port: u8| Input::from_port(port) == Some(target);
                 match e.kind() {
-                    EventKind::SwitchDone => {
+                    EventKind::DdcSwitchRequest if u16::from(e.new) == target.vcp() => {
+                        requested = true
+                    }
+                    EventKind::SwitchDone if requested && about_target(e.new) => {
                         return Ok(Verdict::Confirmed {
-                            input: Input::from_port(e.new),
+                            input: Some(target),
                         });
                     }
-                    EventKind::SwitchFailed => {
+                    EventKind::SwitchFailed if requested && about_target(e.old) => {
                         return Ok(Verdict::Failed {
-                            target: Input::from_port(e.old),
+                            target: Some(target),
                             current: Input::from_port(e.new),
                         });
                     }
