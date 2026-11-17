@@ -1,0 +1,29 @@
+[package]
+name = "monitor-ddc"
+description = "DDC/CI control of monitors running the patched firmware protocol (probe, live state, events, input switch with verdict)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+sha2.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Devices_Display",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_System_Registry",
+] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
