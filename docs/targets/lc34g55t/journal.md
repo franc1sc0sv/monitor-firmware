@@ -140,3 +140,17 @@ Source `patches/v3-full.s` (includes v1 + v2.2). Flashed and verified.
   setting event with its exact address. Settings restored afterwards (brightness 99, contrast 85).
 - Stock factory opcodes in the parser: 0xC2 (write factory blocks 0x2040c1/0x2040ce), 0xC3 (factory read),
   0xC4 (EDID/serial write), 0xCB/0xCC (serial read). Not used by us.
+
+## Inactive HDMI DDC/CI, static pass (2026-11-20)
+
+Full note: `inactive-hdmi-ddc.md`. No hardware touched.
+- Followed IRQ `0x6E` from attach (`0x24dba9`) through the handler `0x24d65c`, the DDC2Bi dispatcher `0x212c6f`, the
+  ISR `0x2126dd`, the service/processor/parser and the reply writer `0x212d39`. None of them reads the active input.
+  The HDMI engine's enable and masks are written only at init (`0x2130d8`) and around EDID reloads; the input switch
+  never touches them; HPD/termination drop only as timed pulses on the port being selected.
+- HDMI = DDC2Bi HW port 1 (port table entry 1, DDC id 2). HW ports 6 and 0 are not wired on this model.
+- The 2026-11-15 reply `88 02 01 10 01 FF FF 00 00` has TP = 1; the Get handler sets TP = 0 for codes above `0x0F`
+  and answers `0x10` with RC = 0, so that reply was not built by the AP. Still consistent with "never processed".
+- DP and HDMI share the request buffer, pending flag and reply length: concurrent hosts can get each other's replies.
+- Next: the read-only peek experiment in the note (ISR-only fields `0x4c19ce`, `0x4c19d2`, `0x4c19d8`, `0x4c19da`,
+  `0x4c19dc`, `0x4c92fd`).

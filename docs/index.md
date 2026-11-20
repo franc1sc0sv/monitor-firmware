@@ -7,5 +7,5 @@
   [recover](guides/recover.md), [port a version](guides/port-firmware-version.md), [add a monitor](guides/add-monitor.md),
   [HIL checklist](guides/hil-checklist.md)
 - Monitors: [LC34G55T overview](targets/lc34g55t/overview.md), [settings map](targets/lc34g55t/settings-map.md),
-  [research journal](targets/lc34g55t/journal.md)
+  [research journal](targets/lc34g55t/journal.md), [inactive HDMI DDC/CI](targets/lc34g55t/inactive-hdmi-ddc.md)
 - [Architecture decisions](adr/README.md) · [Roadmap](roadmap.md)

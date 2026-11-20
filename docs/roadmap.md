@@ -5,6 +5,9 @@ DisplayPort at the end of the session.
 
 ## Next
 
+- **Inactive HDMI DDC/CI** (`docs/targets/lc34g55t/inactive-hdmi-ddc.md`): run the read-only peek experiment (PC on
+  DP peeks the DDC2Bi-only RAM bytes before/after the Mac sends on HDMI). Its result picks a patch (main-loop service,
+  ISR check, TX fix) or rules a firmware fix out. No patch is built until then.
 1. **Settings map**: map the remaining OSD items (refresh rate, game mode, response time, adaptive sync, eye saver,
    black equalizer, off timer, power LED...). Static route: follow the menu engine (`0x284884`, apply table
    `0x378810`, OSD text tables). Dynamic route: `map-setting` skill with the UI's settings grid.
@@ -21,6 +24,8 @@ DisplayPort at the end of the session.
 
 ## Known unknowns
 
+- Why the inactive HDMI does not answer DDC/CI (no software gate in the AP; engine, interrupt or PHY level), and
+  whether macOS keeps the HDMI display's IOAVService while the monitor shows DP.
 - The u16 check word after the AP stream (copied unchanged; boot ignores it; vendor tools might not).
 - Behaviour of Samsung's own updater on a patched unit.
 - Exact meaning of several watched values (`0x4ca78c`, `0x4cebe4`, `0x4ec92d`).
