@@ -15,9 +15,33 @@ request sent on HDMI came back as RC=01 or garbage (journal). On 2026-11-19, wit
 IOAVService got a channel and the `0xEA` probe answered (hardware observation reported by the user). Why does the
 inactive HDMI not answer, and can a patch fix it?
 
-## Short answer
+## Result of the experiment (2026-11-20): H5, nothing to patch
 
-- **Verdict: unknown, pending one read-only experiment.** Nothing in the AP's DDC/CI software path depends on the
+**Confirmed on hardware.** Monitor showing DP (PC on DP, confirmed from the PC: `status` reports `input:
+DisplayPort, signal: true`, Get `0x60` = `0x09`), MacBook on HDMI with its display of the 34" listed by macOS
+(IOAVService `Location = External`). From the Mac, raw IOAVService I2C, one write then one read per request:
+
+| Request (Mac, HDMI) | Write | Read | Reply |
+|---|---|---|---|
+| Get `0x10` | OK | OK | `6e 88 02 00 10 00 00 64 00 63`: valid, max 100, current 99 |
+| Get `0xEA` | OK | OK | `6e 88 02 00 ea 00 40 02 00 1c`: valid, the v3.x probe answers |
+| Get `0x60` | OK | OK | `6e 88 02 00 60 00 00 0e 00 09`: valid, input 9 = DP, the input actually shown |
+
+Every request answered on the first try, twice in a row. So the DDC2Bi path serves the inactive HDMI input: H5.
+
+- The 2026-11-15 failure was a test artefact. The likely cause (*inferred*): on 2026-11-20 the first attempt found
+  the HDMI cable unplugged from the Mac, and macOS then lists **no** external IOAVService at all; earlier tools that
+  still sent something got RC=01 or garbage. With the cable in, the inactive port answers.
+- The ISR-only RAM fields did not change between snapshots. That does not contradict H5: identical requests leave
+  the ISR's pointer copies and the HW-port byte at the same values (`+4 = 0x0c`, `+12 = 0x01` = HDMI, already set
+  by the macOS hot-plug probe when the cable went in, while the first snapshots after boot read all zero). The
+  method can only detect the first HDMI message after a reset, not repeated ones.
+- Consequence: no firmware patch. The shared request buffer and the global event cursor (section "Consequences for
+  Tandem") still hold, so one host at a time must talk DDC/CI.
+
+## Short answer (before the experiment)
+
+- **Verdict before the experiment: unknown.** (Resolved: see the result above, H5.) Nothing in the AP's DDC/CI software path depends on the
   active input (**confirmed in bytes** for every function listed below). So there is no software gate to remove; the
   break is either below the ISR (DDC engine, interrupt delivery, PHY) or in how the 2026-11-15 test was done.
 - The reply recorded on the inactive port (`88 02 01 10 01 FF FF 00 00`) **was not built by the 1006.0 Get handler**
