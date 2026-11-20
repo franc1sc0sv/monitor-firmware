@@ -17,7 +17,8 @@ Single source of current truth for this monitor. The dated research trail (inclu
 | What | Address |
 |---|---|
 | Main loop / DDC service call | `0x26b4f9` / `jal 0x212fc6` at `0x26b6d3` |
-| DDC2Bi ISR (HDMI/DP DDC engines, HW ports 6/0/1) | `0x2126dd`, dispatched from `0x212c6f` |
+| DDC2Bi ISR (DDC-pin engines, HW ports 6/0/1; only HW port 1 = HDMI is wired) | `0x2126dd`, dispatched from `0x212c6f` (IRQ `0x6E` handler `0x24d65c`) |
+| DP-AUX MCCS ISR (shares the DDC buffer `0x4ec618` and pending flag `0x4c19e3`) | `0x21a8df` |
 | DDC processor / parser | `0x212ea5` / `0x270eb3` |
 | Get VCP handler / jump table / common reply tail | `0x26fc1c` / `0x377410` (LE, 255 entries) / `0x26fcd3` |
 | Set VCP handler / dispatch call | `0x270b45` / `0x27123d` |
@@ -30,7 +31,9 @@ Single source of current truth for this monitor. The dated research trail (inclu
 
 ## Behaviour worth knowing
 
-- Stock Get 0x60 reported the queried port (fixed by v1). All inputs answer DDC/CI when their source is connected.
+- Stock Get 0x60 reported the queried port (fixed by v1). DP answers DDC/CI whatever the monitor shows (confirmed).
+  HDMI answered only while it was the active input (2026-11-15 test); the AP has no input gate in its DDC/CI path,
+  so the cause is below the ISR or in that test: see `inactive-hdmi-ddc.md`.
 - Energy cap (stock, US models "XZA"): when `0x2041d6` (VCP F7 / menu item 0x31) is non-zero and an adaptive-sync
   condition holds, the backlight is pinned to `0x2041c2` (52, from `0x2802f3`) and brightness is ignored. Writing
   VCP F7 = 1 clears it. Seen once during testing; it looked like "dull picture, brightness does nothing".

@@ -37,6 +37,34 @@ get_reply_tail = 0x26fcd3
 cfg_ptr = 0x3c41b0
 settings_base = 0x204000
 
+# DDC/CI path (read-only map; nothing here is patched). See docs/targets/lc34g55t/inactive-hdmi-ddc.md.
+# Kept out of [symbols] because [symbols] values are accepted as branch targets by the listing check.
+[ddc]
+irq = 0x6e                  # DDC interrupt (DDC2Bi + DP-AUX), handler attached by 0x24dba9
+irq_handler = 0x24d65c
+d2b_dispatch = 0x212c6f     # picks DDC2Bi HW port 6/0/1 from its status register
+d2b_isr = 0x2126dd
+d2b_init = 0x2130d8
+dp_aux_isr = 0x21a8df
+processor = 0x212ea5
+reply_writer = 0x212d39
+parser = 0x270eb3
+get_vcp = 0x26fc1c
+port_table = 0x3c3440       # stride 0x8c: byte 0 DDC id (DDC2Bi hw port + 1), word +4 type flags
+hdmi_d2b_hwport = 1
+rx_buffer = 0x4ec618        # shared by DDC2Bi and DP-AUX
+rx_count = 0x4c92fc
+pending = 0x4c19e3          # 5 = message waiting for the processor
+src_port = 0x4c19d0         # logical port of the pending message
+reply_len = 0x4c19c8
+# Written only by d2b_isr (u8 unless noted); DP traffic never changes them.
+isr_state = 0x4c19ce
+isr_ptr = 0x4c19d2          # u16
+isr_ptr_prev = 0x4c19d8     # u16
+isr_hwport = 0x4c19da       # HW port of the last complete message
+isr_ptr2 = 0x4c19dc         # u16
+isr_msg_len = 0x4c92fd
+
 [[guards]]
 name = "get60_case"
 at = 0x26fc9b
