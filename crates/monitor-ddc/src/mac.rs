@@ -2,28 +2,24 @@
 //! MonitorControl use. Every symbol is resolved at run time with `dlsym`, so a macOS without them (or an
 //! Intel Mac) builds and links fine and reports "no channel" instead.
 //!
-//! Known limit (confirmed on the 34"): over HDMI the monitor only answers while HDMI is the active input.
+//! The request sequence (write, wait, read, one more write when the DCP drops one) lives in
+//! [`crate::i2c`], tested on Linux. The 34" answers here on its inactive HDMI input too (2026-11-20,
+//! `docs/targets/lc34g55t/inactive-hdmi-ddc.md`); with the HDMI cable out macOS lists no service at all.
 
 use std::ffi::{CStr, c_char, c_void};
 use std::sync::{Mutex, MutexGuard};
-use std::thread::sleep;
-use std::time::Duration;
 
 use crate::bus::{DdcBus, MonitorHandle, MonitorInfo, VcpReply};
+use crate::clock::SystemClock;
 use crate::edid::Edid;
 use crate::error::DdcError;
+use crate::i2c::{self, RawI2c};
 use crate::wire;
 
 type CFTypeRef = *const c_void;
 const UTF8: u32 = 0x0800_0100;
 /// `kIOMainPortDefault`.
 const MAIN_PORT: u32 = 0;
-/// Request to reply: the protocol asks for 50-150 ms.
-const REPLY_WAIT: Duration = Duration::from_millis(50);
-/// The DCP drops a write now and then; one more try fixes it.
-const WRITE_TRIES: usize = 2;
-/// Upper bound for a capabilities string, in fragments (each up to 32 bytes).
-const MAX_FRAGMENTS: usize = 256;
 
 type ServiceMatchingFn = unsafe extern "C" fn(*const c_char) -> CFTypeRef;
 type GetMatchingServicesFn = unsafe extern "C" fn(u32, CFTypeRef, *mut u32) -> i32;
@@ -186,6 +182,7 @@ struct State {
 pub struct MacBus {
     api: Api,
     state: Mutex<State>,
+    clock: SystemClock,
 }
 
 impl MacBus {
@@ -194,6 +191,7 @@ impl MacBus {
         Ok(Self {
             api: Api::load()?,
             state: Mutex::default(),
+            clock: SystemClock::new(),
         })
     }
 
@@ -218,47 +216,11 @@ impl MacBus {
         Ok(Locked { _guard: guard, avs })
     }
 
-    fn write(&self, svc: &Locked<'_>, msg: &[u8], code: u8) -> Result<(), DdcError> {
-        for _ in 0..WRITE_TRIES {
-            // SAFETY: `svc.avs` is in `state.open` and `svc` holds the state lock, so the service is not
-            // released during the call; `msg` is valid for `msg.len()` bytes.
-            let rc = unsafe {
-                (self.api.av_write)(
-                    svc.avs,
-                    u32::from(wire::DDC_ADDRESS),
-                    u32::from(wire::HOST_ADDRESS),
-                    msg.as_ptr().cast(),
-                    msg.len() as u32,
-                )
-            };
-            if rc == 0 {
-                return Ok(());
-            }
-            sleep(Duration::from_millis(10));
+    fn io<'a>(&'a self, svc: &'a Locked<'a>) -> Io<'a> {
+        Io {
+            api: &self.api,
+            svc,
         }
-        Err(DdcError::Bus {
-            code,
-            detail: "IOAVServiceWriteI2C failed".into(),
-        })
-    }
-
-    fn read(&self, svc: &Locked<'_>, len: usize, code: u8) -> Result<Vec<u8>, DdcError> {
-        let mut buf = vec![0u8; len];
-        // SAFETY: `svc.avs` is in `state.open` and `svc` holds the state lock, so the service is not
-        // released during the call; `buf` has `len` writable bytes.
-        let rc = unsafe {
-            (self.api.av_read)(
-                svc.avs,
-                u32::from(wire::DDC_ADDRESS),
-                u32::from(wire::HOST_ADDRESS),
-                buf.as_mut_ptr().cast(),
-                len as u32,
-            )
-        };
-        if rc != 0 {
-            return Err(DdcError::NoReply { code });
-        }
-        Ok(buf)
     }
 
     fn release_all(&self, open: &mut Vec<(MonitorHandle, usize)>) {
@@ -335,36 +297,53 @@ impl DdcBus for MacBus {
 
     fn get_vcp(&self, monitor: MonitorHandle, code: u8) -> Result<VcpReply, DdcError> {
         let svc = self.service(monitor)?;
-        self.write(&svc, &wire::get_vcp_request(code), code)?;
-        sleep(REPLY_WAIT);
-        let buf = self.read(&svc, wire::VCP_REPLY_LEN + 1, code)?;
-        wire::parse_vcp_reply(&buf, code)
+        i2c::get_vcp(&mut self.io(&svc), &self.clock, code)
     }
 
     fn set_vcp(&self, monitor: MonitorHandle, code: u8, value: u16) -> Result<(), DdcError> {
         let svc = self.service(monitor)?;
-        self.write(&svc, &wire::set_vcp_request(code, value), code)?;
-        sleep(REPLY_WAIT);
-        Ok(())
+        i2c::set_vcp(&mut self.io(&svc), &self.clock, code, value)
     }
 
     fn capabilities(&self, monitor: MonitorHandle) -> Result<String, DdcError> {
         let svc = self.service(monitor)?;
-        let code = wire::CAPABILITIES_CODE;
-        let mut out = Vec::new();
-        for _ in 0..MAX_FRAGMENTS {
-            let offset = u16::try_from(out.len())
-                .map_err(|_| DdcError::Protocol("capabilities too long".into()))?;
-            self.write(&svc, &wire::capabilities_request(offset), code)?;
-            sleep(REPLY_WAIT);
-            let buf = self.read(&svc, wire::CAPABILITIES_REPLY_LEN, code)?;
-            let chunk = wire::parse_capabilities_fragment(&buf, offset)?;
-            if chunk.is_empty() {
-                break;
-            }
-            out.extend_from_slice(&chunk);
-        }
-        let end = out.iter().position(|b| *b == 0).unwrap_or(out.len());
-        Ok(String::from_utf8_lossy(&out[..end]).into_owned())
+        i2c::capabilities(&mut self.io(&svc), &self.clock)
+    }
+}
+
+/// One locked service seen as a raw I2C transport.
+struct Io<'a> {
+    api: &'a Api,
+    svc: &'a Locked<'a>,
+}
+
+impl RawI2c for Io<'_> {
+    fn write(&mut self, msg: &[u8]) -> bool {
+        // SAFETY: `svc.avs` is in `state.open` and `svc` holds the state lock, so the service is not
+        // released during the call; `msg` is valid for `msg.len()` bytes.
+        let rc = unsafe {
+            (self.api.av_write)(
+                self.svc.avs,
+                u32::from(wire::DDC_ADDRESS),
+                u32::from(wire::HOST_ADDRESS),
+                msg.as_ptr().cast(),
+                msg.len() as u32,
+            )
+        };
+        rc == 0
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> bool {
+        // SAFETY: as in `write`; `buf` has `buf.len()` writable bytes.
+        let rc = unsafe {
+            (self.api.av_read)(
+                self.svc.avs,
+                u32::from(wire::DDC_ADDRESS),
+                u32::from(wire::HOST_ADDRESS),
+                buf.as_mut_ptr().cast(),
+                buf.len() as u32,
+            )
+        };
+        rc == 0
     }
 }

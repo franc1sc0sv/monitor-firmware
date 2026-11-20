@@ -15,6 +15,7 @@ mod clock;
 mod edid;
 mod error;
 pub mod fake;
+pub mod i2c;
 mod protocol;
 mod win_path;
 pub mod wire;
