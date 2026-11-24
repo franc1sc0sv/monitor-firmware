@@ -127,6 +127,20 @@ not located (bit 5 = 0); soft standby keeps audio.
   Going back to stock after p3c needs a stock restamp above 1032 (for example 1039.0).
 - Next: p3a by USB (not started).
 
+## 0.7 Mac side (2026-11-24, `ssh mac-runner`, read-only)
+
+- `monitor-ddc` builds and runs on the Mac (macOS 27.0.1, Apple Silicon). The 34" on the MacBook's **native HDMI**
+  opens as `standard` protocol 3 with the **same MonitorId as on the PC**; Gets work, only the capabilities read
+  returns NoReply. EDID product on HDMI = `0x7119` (**confirmed**, was inferred). PC and Mac agree on the 34"'s input
+  and on `shows_this_host` (false on the PC, true on the Mac while it shows HDMI).
+- The G5 on the **USB-C→HDMI adapter** (USB-PD VID 0x057E / PID 0x2003, DPCD branch OUI 00-10-FA `cHDMIb`) has no
+  DDC/CI: every write to 0x37 fails (`IOAVServiceWriteI2C`, IOReturn `0xe0114102`, 20/20), while reads at any I2C
+  address return EDID bytes, i.e. the converter emulates an EDID ROM and does not bridge DDC (**confirmed** by
+  probes; mechanism inferred). No software path exists (`IOAVServiceGetDevice` is NULL; DPCD only reaches the
+  adapter). Desk reports it as listed but unreachable.
+- Consequence: the PC (DP) stays the owner of G5 control; a Mac fallback for the G5 needs a different adapter that
+  bridges DDC (VMM7100-class, test before keeping) or the G5 on the native HDMI port.
+
 ## 1. What Tandem needs, as firmware features
 
 Target: **protocol 3**, the same VCP layout and event ids on both monitors, so Tandem uses one driver and only the
