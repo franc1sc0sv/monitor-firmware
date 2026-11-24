@@ -18,3 +18,5 @@ dist/
 build/
 # Local env
 .env
+# Rust (crates/monitor-ddc)
+/target/
