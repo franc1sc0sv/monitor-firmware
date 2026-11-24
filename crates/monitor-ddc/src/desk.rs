@@ -29,6 +29,10 @@ pub struct DeskConfig {
     pub off_after: Duration,
     /// And at least this many missed scans in a row.
     pub min_misses: u32,
+    /// A monitor reported off that the OS still lists (standby) is probed at most this often. In
+    /// standby the 34"'s PM core treats DDC traffic as a wake source; constant polling is the likely
+    /// trigger of the hang seen on 2026-11-23 (docs/targets/lc34g55t/tandem-re.md, inferred).
+    pub standby_probe_interval: Duration,
     /// How long after this host asked for a switch an input change still counts as this host's.
     pub own_switch_window: Duration,
 }
@@ -38,6 +42,7 @@ impl Default for DeskConfig {
         Self {
             off_after: Duration::from_secs(5),
             min_misses: 2,
+            standby_probe_interval: Duration::from_secs(10),
             own_switch_window: Duration::from_secs(15),
         }
     }
@@ -121,6 +126,8 @@ struct Entry {
     announced: bool,
     misses: u32,
     missing_since: Option<Duration>,
+    /// While off and still listed: no DDC traffic before this time.
+    quiet_until: Option<Duration>,
     status: Option<Status>,
     own_switch: Option<(Input, Duration)>,
 }
@@ -260,7 +267,17 @@ impl Desk {
     fn visit(&mut self, index: usize, info: &MonitorInfo, events: &mut Vec<DeskEvent>) {
         let link = Link::new(Arc::clone(&self.bus), Arc::clone(&self.clock), info.handle);
         let now = self.clock.now();
+        let interval = self.config.standby_probe_interval;
         let entry = &mut self.entries[index];
+        // Off but still listed (standby): stay quiet between probes, so DDC traffic does not keep
+        // waking the monitor's PM core.
+        if entry.off && entry.presence == Presence::Unreachable {
+            if entry.quiet_until.is_some_and(|t| now < t) {
+                self.miss(index, Presence::Unreachable, events);
+                return;
+            }
+            entry.quiet_until = Some(now + interval);
+        }
         // Known monitors are reattached to the new handle. One coming back from off is the same unit
         // (same EDID serial hash): a patched one is probed again (one Get, catches a firmware change),
         // a profiled one is not re-read (its capabilities read hangs while the G5 boots, 2026-11-23).
@@ -309,6 +326,7 @@ impl Desk {
         let entry = &mut self.entries[index];
         entry.misses = 0;
         entry.missing_since = None;
+        entry.quiet_until = None;
         entry.presence = Presence::Present;
         if entry.off || !entry.announced {
             entry.off = false;
@@ -388,6 +406,7 @@ fn new_entry(id: MonitorId, info: &MonitorInfo) -> Entry {
         announced: false,
         misses: 0,
         missing_since: None,
+        quiet_until: None,
         status: None,
         own_switch: None,
     }

@@ -241,6 +241,36 @@ fn a_failed_profile_check_is_retried_later_not_forever() {
 }
 
 #[test]
+fn a_listed_monitor_in_standby_is_probed_only_every_ten_seconds() {
+    let (bus, h, mut desk) = desk_with(vec![lc34_dp()]);
+    desk.scan().unwrap();
+    bus.set_personality(h[0], Personality::Disconnected); // listed, silent: standby
+    desk.scan().unwrap();
+    assert!(matches!(
+        scan_past_debounce(&bus, &mut desk).as_slice(),
+        [DeskEvent::Off { .. }]
+    ));
+    bus.clear_ops();
+    for _ in 0..8 {
+        bus.clock().advance(Duration::from_secs(1));
+        desk.scan().unwrap();
+    }
+    let gets = bus
+        .ops_for(h[0])
+        .iter()
+        .filter(|op| matches!(op, BusOp::Get { .. }))
+        .count();
+    // At most one probe (with its retries) in 8 s, instead of one every scan.
+    assert!(gets <= 4, "{gets} Gets while in standby");
+    bus.set_personality(h[0], Personality::Standard);
+    bus.clock().advance(Duration::from_secs(10));
+    assert!(matches!(
+        desk.scan().unwrap().as_slice(),
+        [DeskEvent::Appeared { .. }]
+    ));
+}
+
+#[test]
 fn single_lost_reply_is_not_off() {
     let (bus, h, mut desk) = desk_with(vec![lc34_dp()]);
     desk.scan().unwrap();
