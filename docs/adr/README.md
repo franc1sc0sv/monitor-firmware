@@ -21,3 +21,4 @@
 | [0017](0017-version-maps.md) | Per-firmware-version address maps with expected-byte guards | Accepted |
 | [0018](0018-multi-monitor-identity.md) | Identify monitors by firmware identity, not clock proximity | Proposed |
 | [0019](0019-standalone-assembler.md) | Standalone AEON assembler for the patch subset | Proposed |
+| [0020](0020-profiled-stock-monitors.md) | Control known stock monitors through data profiles | Accepted |

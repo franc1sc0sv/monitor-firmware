@@ -41,7 +41,8 @@ cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warni
 
 Rust crate `crates/monitor-ddc` (used by Tandem, pinned by commit): edition 2024, `thiserror`, no `unwrap`/`expect`
 outside tests, `unsafe` only for FFI with a `// SAFETY:` comment, OS code behind the `DdcBus` trait and tested on
-Linux through `fake::FakeBus`. It never sends a Set or a vendor code before the read-only probe (Get 0xEA) passes.
+Linux through `fake::FakeBus`. It never sends a Set before a read-only check passes (Get 0xEA probe, or an EDID + capabilities profile
+match, ADR-0020) and never sends a vendor code unless the 0xEA probe passed.
 
 ## Where things are
 

@@ -382,6 +382,20 @@ impl Link {
         self.retry(|| self.bus.set_vcp(self.handle, code, value))
     }
 
+    /// Set for the profile path: only reachable through a [`crate::ProfiledMonitor`], which exists only
+    /// after the read-only profile check.
+    pub(crate) fn set_checked(&self, code: u8, value: u16) -> Result<(), DdcError> {
+        self.set(code, value)
+    }
+
+    pub(crate) fn clock(&self) -> Arc<dyn Clock> {
+        Arc::clone(&self.clock)
+    }
+
+    pub(crate) fn config(&self) -> LinkConfig {
+        self.config
+    }
+
     fn retry<T>(&self, mut op: impl FnMut() -> Result<T, DdcError>) -> Result<T, DdcError> {
         let mut attempt = 1;
         loop {

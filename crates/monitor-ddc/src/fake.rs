@@ -53,6 +53,10 @@ pub enum Personality {
     /// Stock firmware that answers every Get with result code 0 and the same junk
     /// ([`FakeMonitorConfig::garbage`]), as some monitors do for codes they do not know.
     Garbage,
+    /// The 32" Odyssey G5 on stock firmware, as measured on 2026-11-23: no 0xEA..0xEF; Get 0x60 reports
+    /// the input on screen in MCCS values (0x0F DP, 0x11 HDMI) and already the target right after a Set;
+    /// 0xD6 ignored; capabilities `model(LEMON23)` with `60(11 0F)`.
+    G5Stock,
 }
 
 /// What a standard monitor does after a Set 0x60.
@@ -100,6 +104,33 @@ impl FakeMonitorConfig {
                 current: 0x1234,
             },
         }
+    }
+}
+
+impl FakeMonitorConfig {
+    /// The 32" Odyssey G5 (stock firmware) with a fictitious serial, connected over DisplayPort.
+    pub fn g5() -> Self {
+        Self {
+            description: "fake Odyssey G5".into(),
+            edid: test_edid("SAM", 0x7489, "Odyssey G5", "FAKE0000002"),
+            switch_delay: Duration::from_millis(1500),
+            ..Self::new(Personality::G5Stock)
+        }
+    }
+}
+
+fn g5_vcp(input: Input) -> u16 {
+    match input {
+        Input::DisplayPort => 0x0F,
+        Input::Hdmi => 0x11,
+    }
+}
+
+fn g5_from_vcp(value: u16) -> Option<Input> {
+    match value & 0xFF {
+        0x0F => Some(Input::DisplayPort),
+        0x11 => Some(Input::Hdmi),
+        _ => None,
     }
 }
 
@@ -156,6 +187,8 @@ struct FakeMonitor {
     cursor: u16,
     brightness: u16,
     pending: Vec<(Duration, Pending)>,
+    /// G5 stock: what Get 0x60 reports (the requested input as soon as a Set arrives).
+    reported: Input,
     /// Requests still to drop with no reply (a link retraining, a noisy cable).
     drop_next: u32,
     /// When the monitor last booted: its clock and event times count from here.
@@ -167,6 +200,7 @@ impl FakeMonitor {
         let mut m = Self {
             handle,
             input: config.input,
+            reported: config.input,
             config,
             seq: 0,
             ring: [Record::default(); RING],
@@ -195,6 +229,7 @@ impl FakeMonitor {
     fn set_input(&mut self, now: Duration, to: Input) {
         let old = self.input.port();
         self.input = to;
+        self.reported = to;
         self.log(now, 0x01, old, to.port());
     }
 
@@ -257,6 +292,10 @@ impl FakeMonitor {
                 max: 100,
                 current: self.brightness,
             }),
+            VCP_INPUT if self.config.personality == Personality::G5Stock => {
+                let v = g5_vcp(self.reported);
+                Ok(VcpReply { max: v, current: v })
+            }
             VCP_INPUT if self.standard() => Ok(VcpReply {
                 max: 0x0E,
                 current: self.input.vcp(),
@@ -299,6 +338,14 @@ impl FakeMonitor {
         }
         match code {
             0x10 => self.brightness = value.min(100),
+            VCP_INPUT if self.config.personality == Personality::G5Stock => {
+                let Some(to) = g5_from_vcp(value) else {
+                    return Ok(());
+                };
+                self.reported = to;
+                self.pending
+                    .push((now + self.config.switch_delay, Pending::Change(to)));
+            }
             VCP_INPUT => {
                 // Unknown input values are ignored, like the firmware does.
                 let Some(to) = Input::from_vcp(value) else {
@@ -333,6 +380,9 @@ impl FakeMonitor {
                 "02 04 05 08 10 12 14(05 08 0B) 16 18 1A 60(06 09) D6(01 05) EA EB EC ED EE EF"
             }
             Personality::Factory => "02 04 05 08 10 12 14(05 08 0B) 16 18 1A 60(06 09) D6(01 05)",
+            Personality::G5Stock => {
+                return Ok("(prot(monitor)type(lcd)model(LEMON23)cmds(01 02 03 07 0C E3 F3)vcp(02 04 05 08 10 12 14(05 08 0B 0C) 16 18 1A 52 60(11 0F ) 62 87 8D CC mswhql(1)mccs_ver(2.0)asset_eep(32)mpu_ver(01))".into());
+            }
         };
         Ok(format!(
             "(prot(monitor)type(LCD)model(LC34G55T)cmds(01 02 03 07 0C E3 F3)vcp({vcp})mccs_ver(2.1))"
