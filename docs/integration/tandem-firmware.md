@@ -116,6 +116,17 @@ not located (bit 5 = 0); soft standby keeps audio.
 - Not yet tested on v3.2: key wake from soft standby, D6 = 5, the display-sleep test with Auto Source Switch off,
   a sleeping Mac's cable state.
 
+## 0.6 G5 back to stock content (2026-11-23)
+
+- The OSD showed **1021.4** (the dev image with the memory write/call hook). The USB updater **refuses a lower
+  version** ("older than the current one"), so stock 1008.3 cannot be installed directly over a higher number.
+- Built `out/g5/M-C5500GGZA-1029.0[C145].img` = stock 1008.3 with only the version digits changed (3 bytes, sum16 tag
+  unchanged), copied with native Windows to the FAT32 stick, hash checked. The G5 accepted it; OSD shows **1029.0**.
+  From the PC: `profiled g5-falcon`, Get 0xE8 unsupported, Get D6 `0/0` (stock behaviour). **Confirmed.**
+- Consequence for the staged plan: every later image needs a higher number (p3a 1030.0, p3b 1031.0, p3c 1032.0).
+  Going back to stock after p3c needs a stock restamp above 1032 (for example 1039.0).
+- Next: p3a by USB (not started).
+
 ## 1. What Tandem needs, as firmware features
 
 Target: **protocol 3**, the same VCP layout and event ids on both monitors, so Tandem uses one driver and only the
