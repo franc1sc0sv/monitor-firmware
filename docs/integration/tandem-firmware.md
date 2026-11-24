@@ -64,6 +64,38 @@ Not tested yet: a switch to an input with no signal (needs a cable unplugged), t
 
 
 
+## 0.3 Static RE for the missing pieces (2026-11-23)
+
+Deep static analysis of both firmwares: `docs/targets/lc34g55t/tandem-re.md` and `docs/targets/g5-falcon/tandem-re.md`.
+
+- **34":** standby and power-off hand the board to a second CPU (8051 "PM51" at flash `0x11080..`); the AP spins and a
+  wake is a full reboot. PM51 keeps keys and DDC wake, so **D6 = 1 from the Mac over HDMI may already wake stock**
+  (inferred). Wake from the DP host needs a **soft standby** patch (D6 = 4 blanks panel/backlight with stock routines,
+  AP + DP + DDC stay up; D6 = 1 turns the panel back on). Stock Get 0xD6 points at a reply tail (bug confirmed). The
+  DPMS hang (R16) is most likely stock PM behaviour triggered by constant DDC polling in standby, not patch code
+  (inferred): `Desk` now probes a listed-but-off monitor at most every 10 s.
+- **G5 (corrected after the implementation pass):** stock Set 0xD6 is accepted but does nothing (1/2 no-ops, 4 sets a
+  flag nobody reads, 5 unsupported). The power call is `SecLibPower_SetPowerState(1)` (the off timer's call), so
+  **power off by D6 is a small patch**; wake needs the same soft-standby idea. Real input already works on stock. The
+  "free BSS" area is the C heap's range (`sbrk` from `0xA803C0A8`, no limit): no statically proven free RAM, so the
+  p3b/p3c hooks check the heap break on every entry and fall back to stock if it grew over their block.
+
+## 0.4 Built, not flashed (2026-11-23)
+
+| Monitor | Image (local `out/`, gitignored) | What it adds | Runbook |
+|---|---|---|---|
+| 34" | `lc34-v3.2.bin` (sha256 `bb41db8a…0701`), flash `0x11000..0x2c0000` | protocol 3: 0xE8, Get D6, soft standby (D6 4/1/5, any key wakes), switch guard, events 0x14/0x15. Cave 2005/2016 bytes | `docs/targets/lc34g55t/tandem-re.md` §7 |
+| G5 | `g5/M-C5500GGZA-1030.0[BFFA].img` p3a | 0xE8, Get D6, D6 = 4/5 power off | `docs/targets/g5-falcon/tandem-re.md` §5 |
+| G5 | `g5/M-C5500GGZA-1031.0[C0D3].img` p3b | + soft standby (D6 4/1); the power key in soft standby powers off | same |
+| G5 | `g5/M-C5500GGZA-1032.0[B260].img` p3c | + event ring 0xEA..0xEF, verdicts, switch guard, 0x14/0x15 | same; free-RAM soak first |
+
+Session order: `docs/integration/tandem-hil.md`. Known gaps of the G5 p3c image: events are sampled when the host
+polls (no main-loop tap); event times and the 0xEF clock tick in 1 s steps and wrap daily, so `monitor-ddc` would see
+one false "rebooted" a day (re-reads the ring, no loss) until the crate or the image handles it; source detection
+not located (bit 5 = 0); soft standby keeps audio.
+
+## 1. What Tandem needs, as firmware features
+
 Target: **protocol 3**, the same VCP layout and event ids on both monitors, so Tandem uses one driver and only the
 profile (data) differs.
 
