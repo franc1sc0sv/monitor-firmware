@@ -35,7 +35,34 @@ Side effect seen (confirmed): when the 34" woke on HDMI, the Mac (lid closed, mi
 re-arranged both screens; both went black for a few seconds. Tandem must expect display re-arrangement on the Mac
 after any switch that makes a monitor appear or disappear for it (R15).
 
-## 1. What Tandem needs, as firmware features
+## 0.2 Desk API on the real desk (2026-11-23, Windows PC over DP, user doing the physical steps)
+
+`monitor-ddc` now has one API for both monitors: `Monitor` (status, switch, power, capabilities) and `Desk`
+(tracks every monitor by `MonitorId` across scans: `Appeared`, `Off`, `InputChanged { by_this_host }`,
+`PowerChanged`, `SignalChanged`; `shows_this_host()` from the EDID product id of the host's port). Checked with
+`examples/desk.rs` (Windows build). All results **confirmed** on hardware:
+
+| Test | 34" (standard) | 32" G5 (profiled) |
+|---|---|---|
+| Status: input, owner (`shows_this_host`) | DP / true; while on HDMI: hdmi / false | HDMI / false; while on DP: dp / true |
+| Switch by command | `Confirmed` 3.4-10.4 s; event `by_this_host: true` | `Accepted` 0.44 s; event `by_this_host: true` |
+| Change with the OSD buttons | `InputChanged by_this_host: false`, both ways | same, both ways |
+| Listed by Windows while showing the other input | **yes** (Present) | yes |
+| Power button off / on | `Off` / `Appeared` | `Off` (after the 5 s debounce) / `Appeared`, still `g5-falcon` |
+| Power off by command | `Ok`, `Off` 5.5 s later; `power_on` = `Unsupported` | `Unsupported` (nothing sent) |
+| Wake by command | impossible (DP drops) | impossible (0xD6 ignored) |
+| PC turns its displays off (DPMS) | **firmware hung**: no LED, no DDC, button dead, still listed by Windows; recovered only by unplugging power (R16) | not affected (it showed the Mac) |
+
+Bugs found and fixed during the run: (1) the off debounce of 2 scans turned the 34"'s DP re-train right after boot
+(~3 s gone) into a false `Off`: now 5 s and 2 scans; (2) a G5 coming back from off was re-checked by reading its
+capabilities, which blocks ~60 s per attempt while it boots (one scan took 266 s) and then failed, leaving it "not
+compatible": known units are now reattached without re-reading, capabilities are read once without retries, and
+"not compatible" is retried after 30 s.
+
+Not tested yet: a switch to an input with no signal (needs a cable unplugged), the whole API from the Mac over HDMI
+(`ssh mac-runner` timed out), the DPMS hang reproduced or compared with stock firmware.
+
+
 
 Target: **protocol 3**, the same VCP layout and event ids on both monitors, so Tandem uses one driver and only the
 profile (data) differs.
@@ -156,6 +183,8 @@ Only after Phase B works, so Tandem never waits on it.
 | R12 | G5 SPARC RE is large (no symbols, relocated HAL) | high / Phase D slips | Phase B makes Tandem independent of it; one feature per image |
 | R13 | Serial or vendor bytes leak into git / Tandem repo / issues | low / legal + privacy | `test_repo_hygiene.py`, EDID-hash ids only, data in `data/` and `out/` |
 | R15 | An input switch or wake makes a monitor appear/disappear for the Mac, which re-arranges displays (both black for seconds; mirroring changes) | high (seen 2026-11-23) / confusing UX | Tandem switches one monitor at a time, waits for macOS to settle, and keeps the Mac's display layout (or re-applies it) |
+| R16 | **The 34" firmware hangs when the PC turns its displays off** (DPMS): no LED, no DDC, button dead, still listed; only a power-cable cycle recovers. Seen once, 2026-11-23, patch v3.1 | high if reproducible (Windows sleeps displays by itself) / monitor unusable until unplugged | Reproduce on purpose; compare with stock 1006.0; until then keep Windows display sleep off on the PC. `Desk` reports it as `Unreachable` → `Off` |
+| R17 | dxva2 calls to the G5 block for tens of seconds while it boots, and `Desk::scan` is sequential | high / every monitor's events late during that time | Never re-read capabilities of a known unit (done); Tandem runs scans off the UI thread; later: per-monitor locking in the Windows backend |
 | R14 | Branch drift (`g5-falcon` vs `develop`) breaks the crate or the client | medium / merge pain | Merge `develop` into `g5-falcon` (or rebase) before Phase B |
 
 ## 4. Decisions needed from the user

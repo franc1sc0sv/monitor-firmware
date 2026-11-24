@@ -100,6 +100,27 @@ pub const PROFILES: &[Profile] = &[Profile {
     power: PowerControl::None,
 }];
 
+/// Which input of the monitor a host is plugged into, from the EDID product id the host reads (the
+/// monitors report a different id per input). Data, per model:
+/// - LC34G55T: `0x711A` on DP (confirmed 2026-11-23 from the PC), `0x7119` on HDMI (inferred: listed by
+///   the PC's display history from the AMD HDMI lab link).
+/// - Odyssey G5: `0x7489` on DP, `0x748A` on HDMI (confirmed).
+pub const HOST_PORTS: &[(&str, u16, Input)] = &[
+    ("SAM", 0x711A, Input::DisplayPort),
+    ("SAM", 0x7119, Input::Hdmi),
+    ("SAM", 0x7489, Input::DisplayPort),
+    ("SAM", 0x748A, Input::Hdmi),
+];
+
+/// The monitor input this host is plugged into, if the model is known.
+pub fn host_input(info: &MonitorInfo) -> Option<Input> {
+    let edid = info.edid.as_ref()?;
+    HOST_PORTS
+        .iter()
+        .find(|(m, p, _)| *m == edid.manufacturer() && *p == edid.product())
+        .map(|(_, _, input)| *input)
+}
+
 /// The profile whose EDID identity matches, if any (no bus traffic).
 pub fn profile_for(info: &MonitorInfo, profiles: &'static [Profile]) -> Option<&'static Profile> {
     profiles.iter().find(|p| p.matches_edid(info))
@@ -172,6 +193,15 @@ pub struct ProfiledMonitor {
 }
 
 impl ProfiledMonitor {
+    /// Same monitor (same [`crate::MonitorId`]) on a handle from a newer enumeration, already checked.
+    pub(crate) fn reattach(&self, link: Link) -> Self {
+        Self {
+            link,
+            profile: self.profile,
+            last: self.last,
+        }
+    }
+
     pub fn handle(&self) -> MonitorHandle {
         self.link.handle()
     }
@@ -244,7 +274,7 @@ impl Link {
         let not_known =
             || DdcError::Protocol(format!("monitor {} matches no profile", info.handle));
         let profile = profile_for(info, profiles).ok_or_else(not_known)?;
-        let caps = self.capabilities()?;
+        let caps = self.capabilities_once()?;
         if !profile.matches_capabilities(&caps) {
             return Err(DdcError::Protocol(format!(
                 "monitor {} has the EDID of {} but its capabilities do not match",

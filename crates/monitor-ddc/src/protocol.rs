@@ -388,6 +388,12 @@ impl Link {
         self.set(code, value)
     }
 
+    /// One capabilities read, no retries: on some monitors (the G5 while booting) one read blocks for
+    /// about a minute, so retrying multiplies the stall.
+    pub(crate) fn capabilities_once(&self) -> Result<String, DdcError> {
+        self.bus.capabilities(self.handle)
+    }
+
     pub(crate) fn clock(&self) -> Arc<dyn Clock> {
         Arc::clone(&self.clock)
     }
@@ -418,6 +424,14 @@ pub struct StandardMonitor {
 }
 
 impl StandardMonitor {
+    /// Same monitor (same [`crate::MonitorId`]) on a handle from a newer enumeration, already probed.
+    pub(crate) fn reattach(&self, link: Link) -> Self {
+        Self {
+            link,
+            protocol: self.protocol,
+        }
+    }
+
     pub fn handle(&self) -> MonitorHandle {
         self.link.handle
     }

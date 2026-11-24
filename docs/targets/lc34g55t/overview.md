@@ -39,6 +39,12 @@ Single source of current truth for this monitor. The dated research trail (inclu
   to. Waking took the power button (it came back on HDMI and the Mac re-arranged its displays). **Confirmed.** So
   "power on by command" is not possible from the DP host with the current firmware; open routes: a video signal, a
   DDC request from the HDMI host while in standby (untested), or a patch (Tandem plan, Phase C).
+- **Hang on display sleep (hardware, 2026-11-23, v3.1, seen once):** the PC sent `SC_MONITORPOWER 2` (all displays
+  off). The monitor went dark with **no LED**, stopped answering DDC, ignored the power button and real mouse/keyboard
+  wake, while Windows kept listing it (EDID still readable). Only unplugging the power cable for 30 s recovered it.
+  Not yet reproduced, not yet compared with stock. HIL item "Standby and wake" was never run before.
+- The DP link re-trains once right after the monitor boots: Windows drops it for ~3 s about 3 s after it first
+  appears. **Confirmed** (2026-11-23).
 - Stock Get 0xD6 is unreliable: it mostly returns the previous request's reply (stale buffer), once `0xD8/0x02`.
   Use the power flags in 0xEE instead. **Confirmed** (2026-11-23, eight reads interleaved with other codes).
 - Capabilities (stock, unchanged by the patch): `60( 12 0F 10)` and `D6(01 04 05)`, although the firmware's real

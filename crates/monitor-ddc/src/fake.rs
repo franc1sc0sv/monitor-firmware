@@ -187,6 +187,8 @@ struct FakeMonitor {
     cursor: u16,
     brightness: u16,
     pending: Vec<(Duration, Pending)>,
+    /// False after the power button or a standby that drops the link: not listed, no replies.
+    powered: bool,
     /// G5 stock: what Get 0x60 reports (the requested input as soon as a Set arrives).
     reported: Input,
     /// Requests still to drop with no reply (a link retraining, a noisy cable).
@@ -201,6 +203,7 @@ impl FakeMonitor {
             handle,
             input: config.input,
             reported: config.input,
+            powered: true,
             config,
             seq: 0,
             ring: [Record::default(); RING],
@@ -259,7 +262,7 @@ impl FakeMonitor {
 
     /// True when this request is lost on the wire.
     fn dropped(&mut self) -> bool {
-        if self.config.personality == Personality::Disconnected {
+        if self.config.personality == Personality::Disconnected || !self.powered {
             return true;
         }
         let drop = self.drop_next > 0;
@@ -342,6 +345,9 @@ impl FakeMonitor {
                 let Some(to) = g5_from_vcp(value) else {
                     return Ok(());
                 };
+                if self.config.switch == SwitchBehavior::Fail {
+                    return Ok(());
+                }
                 self.reported = to;
                 self.pending
                     .push((now + self.config.switch_delay, Pending::Change(to)));
@@ -366,6 +372,8 @@ impl FakeMonitor {
                 }
             }
             0xEB if self.standard() => self.cursor = value,
+            // The 34" goes to standby on 0xD6 = 4/5 and its DP link drops with it (2026-11-23).
+            0xD6 if self.standard() && matches!(value, 4 | 5) => self.powered = false,
             // Writes to unknown codes have no acknowledgement on the wire: accepted and ignored.
             _ => {}
         }
@@ -474,6 +482,25 @@ impl FakeBus {
         });
     }
 
+    /// The power button: off removes the monitor from the bus; on boots it again (on `input`).
+    pub fn power_button(&self, handle: MonitorHandle, on: bool) {
+        let now = self.clock.now();
+        let _ = self.with(handle, |m| {
+            if on && !m.powered {
+                m.powered = true;
+                m.reboot(now);
+            } else if !on {
+                m.powered = false;
+            }
+            Ok(())
+        });
+    }
+
+    /// True while the monitor is powered (not off by button or by a standby that drops the link).
+    pub fn is_powered(&self, handle: MonitorHandle) -> bool {
+        self.with(handle, |m| Ok(m.powered)).unwrap_or(false)
+    }
+
     /// The next `count` requests to this monitor get no reply.
     pub fn drop_next(&self, handle: MonitorHandle, count: u32) {
         let _ = self.with(handle, |m| {
@@ -513,6 +540,7 @@ impl DdcBus for FakeBus {
         let s = lock(&self.state);
         Ok(s.monitors
             .iter()
+            .filter(|m| m.powered)
             .map(|m| MonitorInfo {
                 handle: m.handle,
                 description: m.config.description.clone(),

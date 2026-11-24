@@ -33,3 +33,6 @@ locked" signal, so this is weaker than the patched `switch-done`).
   written to.
 - The G5 accepts a switch at once (Get 0x60 changes immediately) and the picture follows 1-2 s later.
 - Power is not controllable on the G5 (0xD6 ignored) and not wakeable over DP on the 34" (`PowerControl` records it).
+- A profiled unit coming back from off is reattached by `MonitorId` without re-reading its capabilities: the G5's
+  capabilities read blocks ~60 s per attempt while it boots (confirmed 2026-11-23). Capabilities are read once,
+  without retries; a failed check is retried after 30 s instead of marking the monitor not compatible for good.

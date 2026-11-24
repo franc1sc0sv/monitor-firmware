@@ -16,9 +16,11 @@
 
 mod bus;
 mod clock;
+mod desk;
 mod edid;
 mod error;
 pub mod fake;
+mod monitor;
 mod profile;
 mod protocol;
 mod win_path;
@@ -33,11 +35,13 @@ use std::sync::Arc;
 
 pub use bus::{DdcBus, MonitorHandle, MonitorInfo, VcpReply};
 pub use clock::{Clock, SystemClock};
+pub use desk::{Desk, DeskConfig, DeskEvent, MonitorState, Presence};
 pub use edid::{Edid, EdidError, MonitorId};
 pub use error::DdcError;
+pub use monitor::{Capabilities, InputTruth, Monitor, Power, Status, SwitchProof, SwitchResult};
 pub use profile::{
-    InputChange, PROFILES, PowerControl, Profile, ProfiledMonitor, ProfiledVerdict, VCP_POWER,
-    caps_values, profile_for,
+    HOST_PORTS, InputChange, PROFILES, PowerControl, Profile, ProfiledMonitor, ProfiledVerdict,
+    VCP_POWER, caps_values, host_input, profile_for,
 };
 pub use protocol::{
     Event, EventBatch, EventCursor, EventKind, Incompatibility, Input, Link, LinkConfig, LiveState,
