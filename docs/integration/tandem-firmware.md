@@ -88,6 +88,7 @@ Deep static analysis of both firmwares: `docs/targets/lc34g55t/tandem-re.md` and
 | G5 | `g5/M-C5500GGZA-1030.0[BFFA].img` p3a | 0xE8, Get D6, D6 = 4/5 power off | `docs/targets/g5-falcon/tandem-re.md` §5 |
 | G5 | `g5/M-C5500GGZA-1031.0[C0D3].img` p3b | + soft standby (D6 4/1); the power key in soft standby powers off | same |
 | G5 | `g5/M-C5500GGZA-1032.0[B260].img` p3c | + event ring 0xEA..0xEF, verdicts, switch guard, 0x14/0x15 | same; free-RAM soak first |
+| G5 | `g5/M-C5500GGZA-1033.0[B515].img` p3d (2026-11-24) | p3c with a backlight-only soft standby: p3c's wake left the screen black on hardware | same, section 5 step 6 and section 7 |
 
 Session order: `docs/integration/tandem-hil.md`. Known gaps of the G5 p3c image: events are sampled when the host
 polls (no main-loop tap); event times and the 0xEF clock tick in 1 s steps and wrap daily, so `monitor-ddc` would see

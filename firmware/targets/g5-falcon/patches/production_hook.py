@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""G5 production patch (protocol 3), built in three stages from the stock 1008.3 image.
+"""G5 production patch (protocol 3), built in stages from the stock 1008.3 image.
 
     p3a  1030.0  Get 0xE8 capability word, Get 0xD6 truthful, Set 0xD6 = 4 or 5 -> stock power off. No RAM used.
     p3b  1031.0  p3a + soft standby: Set 0xD6 = 4 panel off (CPU, link and DDC/CI stay up), 1 = wake, 5 = power off.
     p3c  1032.0  p3b + event ring 0xEA..0xEF, switch verdicts, cable-mask and power-state events, switch guard.
+    p3d  1033.0  p3c with the soft standby done by the backlight alone (SecHalBoard_SetBacklight off / on) instead of
+                 the panel power sequencer, whose "on" did not bring the picture back on hardware.
 
 No memory, call or SPI vendor codes: capability bit 6 is 0. The hook only runs when a host sends Get/Set VCP (two
 call-site redirects in the DDC/CI dispatcher); the boot path is untouched. Every stock code keeps its handler except
@@ -33,7 +35,7 @@ from mfw import novatek as nv  # noqa: E402
 
 FAMILY = b"M-C5500GGZA"
 VERSION_MAP = Path(__file__).resolve().parents[1] / "versions" / "1008.3.toml"
-STAGES = {"a": "1030.0", "b": "1031.0", "c": "1032.0"}
+STAGES = {"a": "1030.0", "b": "1031.0", "c": "1032.0", "d": "1033.0"}
 CODE_SHIFT = 0x2E000  # file offset = nominal code VA + CODE_SHIFT (the code runs at VA + 0x320; calls are relative)
 
 # Capability bits (docs/protocol/vcp-interface.md, "Protocol 3")
@@ -44,6 +46,7 @@ CAPS = {
     "b": CAP_REAL_INPUT | CAP_CABLE | CAP_D6 | CAP_WAKE,
     "c": CAP_REAL_INPUT | CAP_CABLE | CAP_D6 | CAP_WAKE | CAP_VERDICT | CAP_RING | CAP_GUARD,
 }
+CAPS["d"] = CAPS["c"]
 RING_SIZE = 0x40
 PROTOCOL = 3
 VERDICT_SECONDS = 8
@@ -230,7 +233,7 @@ def build_hook(stage: str, vm: VersionMap) -> tuple[Asm, dict[str, bytes]]:
     s, ram = vm.sym, vm.ram
     if (ram["base"], ram["ring"] - ram["base"], ram["state"] - ram["base"]) != (RAM_BASE, RING, STATE):
         raise BuildError("version map RAM layout does not match the builder")
-    ring, soft = stage == "c", stage in "bc"
+    ring, soft, backlight = stage in "cd", stage in "bcd", stage == "d"
     a = Asm(vm.regions)
     st = lambda off: STATE + off  # noqa: E731  (state field displacement from %l7)
 
@@ -407,21 +410,32 @@ def build_hook(stage: str, vm: VersionMap) -> tuple[Asm, dict[str, bytes]]:
         a.cmp("g1", 0)
         a.b("be", "SEVENT")
         a.nop()
-        a.mov(1, "o0")
-        a.call(s["panel_on_off"])
-        a.mov(1, "o1")
+        if backlight:  # the stock relight after every input change: backlight GPIO + PWM gate, nothing else
+            a.call(s["set_backlight"])
+            a.mov(1, "o0")
+        else:
+            a.mov(1, "o0")
+            a.call(s["panel_on_off"])
+            a.mov(1, "o1")
         a.call(s["led_power_on"])
         a.nop()
         a.b("ba", "SEVENT")
         a.store("stb", "g0", "l7", st(S_SOFT))
-        a.label("SSOFT")  # 4 = soft standby: panel sequence off, LED to its off state, everything else keeps running
-        a.load("ldub", "l7", st(S_SOFT), "g1")
-        a.cmp("g1", 0)
-        a.b("bne", "SEVENT")
-        a.nop()
-        a.mov(0, "o0")
-        a.call(s["panel_on_off"])
-        a.mov(1, "o1")
+        a.label("SSOFT")  # 4 = soft standby: screen dark, LED to its off state, everything else keeps running
+        if backlight:
+            # Backlight off only (what the stock source change does before every switch). Not skipped when the flag
+            # is already set: the firmware relights the backlight by itself (key press, new picture) without telling
+            # the hook, and the command must still darken the screen then.
+            a.call(s["set_backlight"])
+            a.mov(0, "o0")
+        else:
+            a.load("ldub", "l7", st(S_SOFT), "g1")
+            a.cmp("g1", 0)
+            a.b("bne", "SEVENT")
+            a.nop()
+            a.mov(0, "o0")
+            a.call(s["panel_on_off"])
+            a.mov(1, "o1")
         a.call(s["led_power_off"])
         a.nop()
         a.mov(1, "g1")
@@ -643,7 +657,7 @@ def _call_word(pc: int, target: int) -> bytes:
 
 
 def build(stock: bytes, stage: str | None, vm: VersionMap | None = None) -> Built:
-    """Return the image for *stage* ("a", "b", "c"); None returns the stock image unchanged (round trip)."""
+    """Return the image for *stage* ("a".."d"); None returns the stock image unchanged (round trip)."""
     vm = vm or VersionMap.load()
     check_base(stock, vm)
     if stage is None:

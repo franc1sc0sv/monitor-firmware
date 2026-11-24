@@ -31,8 +31,9 @@ set_vcp = 0x1869BC              # SecLibCommon_DddCmdSetVcp
 get_current_source = 0x1B02C0   # SecLibSource_GetCurrentSecSourceName(window): 0x00 HDMI1, 0x10 DP1 (confirmed)
 set_power_state = 0x1ADACC      # SecLibPower_SetPowerState: 0 toggle, 1 off, 2 on, 3 power saving, 5 wake (confirmed)
 panel_on_off = 0x18BDE8         # SecLibCommon_PanelOnOffControl(onOff, force2Finish) (confirmed by its own strings)
-led_power_on = 0x18A710         # "Set LED for Power On" routine, no arguments (confirmed)
-led_power_off = 0x18A830        # "Set LED for Power Off" routine, no arguments (confirmed)
+led_power_on = 0x18A710         # SecLibCommon_LedOn ("Set Key Led On"), no arguments (confirmed)
+led_power_off = 0x18A830        # SecLibCommon_LedOff ("Set Key Led Off"), no arguments (confirmed)
+set_backlight = 0x1179C8        # SecHalBoard_SetBacklight(on): backlight GPIO + PWM gate (confirmed by its strings)
 tick_seconds = 0xA8037D2C       # +1 per pass of a main-loop gate, wraps at 86400: seconds (unit inferred)
 sync_state = 0xA803B12C         # main window sync state word (confirmed)
 sync_locked = 4                 # SEC_SYNC_SYNC_NORMAL (confirmed from the debug table)
@@ -179,3 +180,45 @@ len = 0x114
 expect_sha256 = "7fd2d6b9087cabb8c8f43f0e845efac4dc304896ca451702f912e70a14c813d4"
 note = "VA 0x1e1ae4: dead function (static proof only), p3c ring reads and the Set 0x60 guard"
 
+
+[[guards]]
+name = "set_backlight"
+at = 0x1459c8
+len = 0x9c
+expect_sha256 = "50e0678ec8f7c90b9cfbff99179e200c5720abf06971f5a44cbb77a9f487666f"
+note = "VA 0x1179c8: SecHalBoard_SetBacklight(on) (called by the p3d soft standby and wake)"
+
+[[guards]]
+name = "backlight_gpio"
+at = 0x17e5c4
+len = 0x40
+expect_sha256 = "bd418eb58009ce0ae8b1743dbe9a3249fa30377f599e03acb1b7f3e4471fbe55"
+note = "VA 0x1505c4: backlight on / off leaves: HAL GPIO (6, 0x80) and the PWM gate"
+
+[[guards]]
+name = "backlight_pwm_gate"
+at = 0x19167c
+len = 0x24
+expect_sha256 = "c6334df3b4d0a1731ea3136ddd3607edcbb0cb564626ff1ef03b5884c96924c1"
+note = "VA 0x16367c: PWM gate called by the backlight leaves"
+
+[[guards]]
+name = "source_change_backlight_off"
+at = 0x14bed8
+len = 0xc
+expect_sha256 = "c2003adab85b14e01e8bd26876a2cacd3231aebde6145ba41536565d1ae4841c"
+note = "VA 0x11ded8: tail call to SecHalBoard_SetBackLightOff made by the source change: stock turns the backlight off from the DDC context"
+
+[[guards]]
+name = "after_display"
+at = 0x1a71e0
+len = 0xc0
+expect_sha256 = "8a8df26f09e855c568bed498cd85d8e6657557fd058f45b8997c0806e69de447"
+note = "VA 0x1791e0: __APPTasksAfterDisplay: relights the backlight (if the panel power GPIO is on) after a new picture"
+
+[[guards]]
+name = "panel_sequencer_off"
+at = 0x1979a8
+len = 0x58
+expect_sha256 = "382c09fe42e69ab523b304eb66b16451cfc74a943d723bb7c0b0b64a297293a2"
+note = "VA 0x1699a8: panel sequencer, off step: forced colour + free-run on display channel 0 (no counterpart in the on steps)"

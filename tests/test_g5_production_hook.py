@@ -104,7 +104,7 @@ class Machine:
     # -- firmware stubs: return like a windowed callee (caller's %o1..%o5 and %g1..%g4 are not preserved) --
     def stub(self, pc: int) -> bool:
         names = {SYM[k]: k for k in ("get_vcp", "set_vcp", "get_current_source", "set_power_state", "panel_on_off",
-                                     "led_power_on", "led_power_off")}  # fmt: skip
+                                     "led_power_on", "led_power_off", "set_backlight")}  # fmt: skip
         if pc not in names:
             return False
         name, o = names[pc], self.wins[-1]["o"]
@@ -117,6 +117,8 @@ class Machine:
             ret = self.source
         elif name == "panel_on_off":
             self.log.append((name, o[0], o[1]))
+        elif name == "set_backlight":
+            self.log.append((name, o[0]))
         else:
             self.log.append((name, o[0]) if name == "set_power_state" else (name,))
         for k in range(1, 6):
@@ -255,7 +257,7 @@ class Machine:
     cursor = 0
 
 
-@pytest.fixture(params=["a", "b", "c"])
+@pytest.fixture(params=["a", "b", "c", "d"])
 def any_stage(request) -> Machine:
     return Machine(request.param)
 
@@ -273,7 +275,7 @@ def test_sections_fit_and_stay_in_their_regions():
         for name, blob in code.items():
             assert len(blob) <= VM.regions[name][1] and len(blob) % 4 == 0
         used = set(code)
-        assert used <= ({"main", "leaf"} if stage != "c" else {"main", "leaf", "aux", "sample"})
+        assert used <= ({"main", "leaf"} if stage in "ab" else {"main", "leaf", "aux", "sample"})
         spans = [(VM.regions[n][0], VM.regions[n][0] + VM.regions[n][1]) for n in VM.regions]
         assert all(any(lo <= v < hi for lo, hi in spans) for v in asm.labels.values())
 
@@ -333,15 +335,16 @@ def test_images_are_stamped_checksummed_and_change_only_the_patch_sites():
             word = struct.unpack(">I", b.image[site + ph.CODE_SHIFT : site + ph.CODE_SHIFT + 4])[0]
             assert word >> 30 == 1 and site + 4 * (word & 0x3FFFFFFF) == b.labels[entry]
         seen.add(b.name.filename)
-    assert len(seen) == 3
+    assert len(seen) == len(ph.STAGES) == 4
 
 
 def test_encoder_matches_capstone():
     cs = pytest.importorskip("capstone")
     md = cs.Cs(cs.CS_ARCH_SPARC, cs.CS_MODE_BIG_ENDIAN)
-    asm, code = ph.build_hook("c", VM)
-    for name, blob in code.items():
-        assert len(list(md.disasm(blob, VM.regions[name][0]))) == len(blob) // 4, f"undecodable word in {name}"
+    for stage in "cd":
+        asm, code = ph.build_hook(stage, VM)
+        for name, blob in code.items():
+            assert len(list(md.disasm(blob, VM.regions[name][0]))) == len(blob) // 4, f"undecodable word in {name}"
 
 
 # ---- behaviour (every stage) ----
@@ -350,7 +353,7 @@ def test_other_codes_reach_the_stock_handlers_untouched(any_stage: Machine):
     for code in (0x10, 0x60, 0xE9, 0xE7, 0xF2, 0xFE, 0x00):
         m.log.clear()
         assert m.get(code) is None and m.log == [("get_vcp", code)]
-    ours = {0xD6} | ({0x60, 0xEB} if m.stage == "c" else set())
+    ours = {0xD6} | ({0x60, 0xEB} if m.stage in "cd" else set())
     for code in sorted({0x10, 0x60, 0xEB, 0xF4, 0xF5, 0x04} - ours):
         m.log.clear()
         m.set(code, 1)
@@ -400,7 +403,57 @@ def test_soft_standby_and_wake(stage: str):
     assert m.set(0xD6, 1) and m.log == []  # wake while on: nothing to do
 
 
-@pytest.mark.parametrize("stage", ["b", "c"])
+def test_p3d_soft_standby_uses_only_the_backlight():
+    m = Machine("d")
+    assert m.set(0xD6, 4)
+    assert m.log == [("set_backlight", 0), ("led_power_off",)]
+    assert m.get(0xD6) == (0, 5, 0, 4) and m.get(0xE8)[1] == 1
+    m.log.clear()
+    assert m.set(0xD6, 4)  # the firmware may have relit the screen by itself: the command darkens it again
+    assert m.log == [("set_backlight", 0), ("led_power_off",)]
+    assert m.get(0xD6) == (0, 5, 0, 4)
+    m.log.clear()
+    assert m.set(0xD6, 1)
+    assert m.log == [("set_backlight", 1), ("led_power_on",)]
+    assert m.get(0xD6) == (0, 5, 0, 1) and m.get(0xE8)[1] == 0
+    m.log.clear()
+    assert m.set(0xD6, 1) and m.log == []  # wake while on: nothing to do
+    m.set(0xD6, 4)
+    m.log.clear()
+    assert m.set(0xD6, 5) and m.log == [("set_power_state", 1)]  # power off from soft standby
+    assert m.get(0xE8)[1] == 0
+
+
+def test_p3d_never_calls_the_panel_sequencer():
+    target = SYM["panel_on_off"]
+    for stage in "abcd":
+        asm, code = ph.build_hook(stage, VM)
+        calls = set()
+        for name, blob in code.items():
+            base = VM.regions[name][0]
+            for k in range(0, len(blob), 4):
+                w = struct.unpack(">I", blob[k : k + 4])[0]
+                if w >> 30 == 1:
+                    calls.add((base + k + 4 * ((w & 0x3FFFFFFF) - (1 << 30 if w & (1 << 29) else 0))) & M32)
+        assert (target in calls) == (stage in "bc")
+        assert (SYM["set_backlight"] in calls) == (stage == "d")
+
+
+def test_p3d_keeps_the_p3c_ring_and_switch_behaviour():
+    (_, c), (_, d) = ph.build_hook("c", VM), ph.build_hook("d", VM)
+    assert c["leaf"] == d["leaf"] and len(d["main"]) < len(c["main"])
+    assert all(len(c[n]) == len(d[n]) for n in ("aux", "sample"))  # same code, only branch offsets into main move
+    m = Machine("d")
+    assert m.events() == [(0x00, 0, 0), (0x01, 0xEE, 0), (0x06, 0xEE, 1), (0x15, 0xEE, 3)]
+    m.set(0xD6, 4)
+    m.set(0xD6, 1)
+    assert m.events() == [(0x14, 1, 4), (0x14, 1, 1)]
+    m.log.clear()
+    assert not m.set(0x60, 0x11) and m.log == [("set_vcp", 0x60)]
+    assert m.events() == [(0x10, 0, 0x11)]
+
+
+@pytest.mark.parametrize("stage", ["b", "c", "d"])
 def test_heap_growth_turns_the_hook_into_stock(stage: str):
     m = Machine(stage)
     assert m.get(0xE8) is not None

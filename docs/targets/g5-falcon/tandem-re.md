@@ -2,7 +2,7 @@
 
 Static analysis of the stock **M-C5500GGZA-1008.3** image (the local copy under `data/vendor/g5/stock-1008.3/`), the
 production patch built from it (`firmware/targets/g5-falcon/patches/production_hook.py`), and the runbook for the
-hardware session. **Nothing here has run on the monitor yet.** Confidence per ADR-0001: **confirmed** = read in the
+hardware session. p3c ran on the monitor on 2026-11-24 (results in section 7); p3d is built, not flashed. Confidence per ADR-0001: **confirmed** = read in the
 disassembly or bytes of this image (or an earlier hardware observation quoted from `firmware-re.md`); **inferred** =
 reasoned from them.
 
@@ -48,8 +48,8 @@ handlers run in the same main-loop context as the DPMS handler and the off timer
   `IsFakeDPMSOn` (`0x12433C`) returns 0 on this model.
 - **Panel control (confirmed by its own strings):** `SecLibCommon_PanelOnOffControl(onOff, force2Finish)`
   (`0x18BDE8`) -> `SYSAPI_PanelOnOffControl` (`0x16CA98`), the panel power sequencer; with force 1 it waits for the
-  sequence to finish. The stock power-off uses the same primitive with (0, 1). LED routines: `0x18A710` (power on),
-  `0x18A830` (power off), no arguments.
+  sequence to finish. The stock power-off uses the same primitive with (0, 1). LED routines: `0x18A710`
+  (`SecLibCommon_LedOn`), `0x18A830` (`SecLibCommon_LedOff`), no arguments: the key LED, not the backlight.
 
 Consequence: power **off** by command is one stock call. Power **on** by command is impossible once the SPARC has
 stopped, so the only DDC wake is a **soft standby** that never stops it: panel sequence off, LED off, everything else
@@ -116,6 +116,7 @@ code. The boot path and every other stock byte are unchanged; the hook runs only
 | p3a | 1030.0 | Get 0xE8, Get 0xD6 = 1, Set 0xD6 = 4 or 5 -> `SetPowerState(1)` | `0x0091` | main 0xB8/0x280, leaf 0x30/0x90 |
 | p3b | 1031.0 | soft standby: Set 0xD6 = 4 panel off + LED off, 1 = panel on + LED on, 5 = power off; Get 0xD6 = 4 in soft standby; 0xE8 ML bit 0 | `0x0099` | main 0x1C4/0x280, leaf 0x30/0x90 |
 | p3c | 1032.0 | ring 0xEA..0xEF (protocol 3, size 0x40), events 0x00 0x01 0x06 0x10 0x11 0x12 0x14 0x15, switch guard | `0x019F` | main 0x244/0x280, aux 0x114/0x114, sample 0xFC/0x114, leaf 0x84/0x90 |
+| p3d | 1033.0 | p3c with the soft standby done by the backlight alone: Set 0xD6 = 4 -> `SecHalBoard_SetBacklight(0)`, 1 -> `SetBacklight(1)`; no panel sequencer call (section 7) | `0x019F` | main 0x22C/0x280, others as p3c |
 
 Capability bit 6 (memory codes) is 0 in every stage; there is no memory, call or SPI code. Bit 5 is 0.
 
@@ -217,9 +218,106 @@ what was sent last.
 5. **Record** every result in `overview.md` and here, change "inferred" to "confirmed" or to what was seen, and only
    then update the G5 profile in the crate.
 
+6. **p3d** `M-C5500GGZA-1033.0[B515].img` (over p3c by USB; 1033.0 > 1032.0). Expect OSD 1033.0.
+   - `desk status`: `standard`, capability word `019F`; one switch each way still `Confirmed`.
+   - Set 0xD6 = 4: screen dark at once (no panel power-down delay), Windows keeps the display, Get 0xD6 = 4, event
+     0x14 new = 4. Look at the panel in a dark room: no glow at all = backlight off (expected).
+   - Set 0xD6 = 1: **picture back within a second**, Get 0xD6 = 1, event 0x14 new = 1. Repeat five times, and once
+     after 10 minutes dark.
+   - In soft standby press the menu key: the stock firmware is expected to relight the screen for the OSD by itself
+     (Get 0xD6 still says 4: known gap). Then Set 0xD6 = 4 again: dark again. Then Set 0xD6 = 1.
+   - In soft standby `desk switch g5 hdmi`: expected `Confirmed` **and the screen relit by the stock firmware** (same
+     gap). Record what happens.
+   - In soft standby: power key (expected real power off, then on with picture), PC display sleep (stock standby, wake
+     by signal with picture), Set 0xD6 = 5 (power off).
+   - If the wake leaves the screen dark: do not power-cycle yet. Run the "no flash" experiments of section 7 first.
+
 ## 6. Open work after HIL
 
 - Source-detection setting (bit 5, flag bit 1): find it through the settings accessor `0x1B5CE4(index)` and the OSD.
 - Audio mute and power-key handling in soft standby (needs a main-loop tap; one more region).
+- p3d: Get 0xD6 / 0xE8 keep saying "soft standby" after the stock firmware relights the screen by itself (key, input
+  change). Fix candidate: report soft standby only while `SecHalBoard_IsBacklightOn` (`0x1179B0`) is false (about 0x30
+  bytes of `main`; 0x54 are free in p3d).
 - Finer time base than one second, if Tandem needs it.
 - A RAM home outside the heap, if the interlock ever trips.
+
+## 7. p3c on hardware and the wake fix (2026-11-24)
+
+### Seen on the monitor with p3c (confirmed, hardware)
+
+- Protocol 3 works: Get 0xEA = `0x4003`, Get 0xE8 = `0300/019F`, DP <-> HDMI switches `Confirmed` in about 2 s, event
+  ring, cable mask.
+- Set 0xD6 = 4: picture gone, Get 0xD6 = 4, event 0x14 logged.
+- **Set 0xD6 = 1 does not bring the picture back.** The call returns, Get 0xD6 = 1, the event is logged, the sync
+  state is locked (0xEE CL = 1), the screen stays black and the OSD does not show on the menu key. Twice.
+- A DDC switch (Set 0x60) in that state is `Confirmed` and the screen stays black.
+- Changing the input with the monitor's keys brings the picture back.
+
+### What the firmware does (confirmed in the disassembly unless marked)
+
+- **Panel sequencer.** `SYSAPI_PanelOnOffControl` (`0x16CA98`) drives a state byte at `0xA803AD20` through the step
+  function `0x16978C`: 1 = off, 2..5 = on steps (panel power GPIO, transmitter, wait), 6 = on, 7..9 = off steps. With
+  force = 1 the caller loops until 6 (on) or 1 (off), so p3c's `PanelOnOffControl(1, 1)` did run to "on".
+- **The on steps do switch the backlight on**: step 5 -> 6 ends in the backlight leaf `0x1505C4` (HAL GPIO 6/0x80 = 1,
+  then the PWM gate `0x16367C`). The panel power GPIO (5/0x10) is set in step 2.
+- **The off steps do more than the on steps undo.** Step 7 (`0x1699A8`) calls `0x138E68(0, 0, 0, 0)`: it puts display
+  channel 0 into forced-colour output (scaler register 0x54 = 2) and, for channel 0 only, reprograms the output timing
+  for free run (`0x136BE4` and four clock writes `0x1370B4`). No on step reverses either. The stock inverse of the
+  forced colour is `Display_ShowNormalImage` (`0x138FB8`, register 0x54 = 0), reached only through
+  `SecHalScaler_SetVideoMute(window, off)` (`0x11DBFC`) and the window state machine (`0x166208`), with the window's
+  own channel number.
+- **Stock never needs that inverse.** `SecLibPower_SetPowerState` does not call the sequencer for "on" (2) or "wake"
+  (5): they set flags and the stored state. `SecHalScaler_SetSystemPowerState` (`0x124344`, reached through `0x18BDCC`)
+  calls the sequencer only with "off", right before the SPARC stops. The panel comes on in the boot path (init step
+  `0x18C168`: `PanelOnOff(1, 0)`, then the boot's own backlight call) on a freshly initialised scaler. The only stock
+  "on" calls at run time are `SecLibCommon_PowerOnPanelForOSDDisplay` (`0x18BE40`) and one service command
+  (`0x1A2750`), both only when the panel is not already on.
+- **Backlight at run time.** `SecHalBoard_SetBacklight(on)` (`0x1179C8`): on = `0x1505C4`, off = `0x1505E4` (PWM gate,
+  then GPIO 6/0x80 off). `SecHalBoard_IsBacklightOn` (`0x1179B0`) and `IsPanelOn` (`0x117B00`) read the two GPIOs.
+  Every source change (`0x1B0500`, the function stock Set 0x60 and the OSD both call) starts with
+  `SetBackLightOff` (`0x11DED8` -> `0x117DE4`), from the DDC context too. After the new picture is shown,
+  `__APPTasksAfterDisplay` (`0x1791E0`) calls `SetBacklight(1)` (through `0x1A756C`) if the panel power GPIO is on and
+  the backlight GPIO is off. `Display_ShowNormalImage` only restores the backlight state it found. A scan of every
+  direct call finds no periodic caller of the backlight leaves.
+- **Key path.** The app action handler (`0x179C74`) calls `PowerOnPanelForOSDDisplay` when the backlight GPIO is off;
+  with the sequencer already "on" that is `SetBacklight(1)`. The OSD source select then calls the same `0x1B0500` as
+  the DDC handler (plus saving the setting).
+
+### Root cause of the black wake: not settled statically
+
+Confirmed: the run-time "panel off, panel on" pair is not symmetric in this firmware and stock never uses it that
+way; p3c's wake is a path the vendor code does not exercise. **Inferred**, two candidates that the disassembly cannot
+tell apart:
+
+1. Display channel 0 stays in forced black with free-run timing after the on sequence (backlight on, black frame,
+   OSD covered). Against it: by the disassembly a DDC switch should then have shown a picture after its own unmute,
+   unless the main window uses another channel number than 0 (run-time value, not read).
+2. The panel or its transmitter does not restart cleanly from the free-run state the off sequence left (backlight
+   on or off, nothing shown). Against it: nothing explains why a key input change repairs it and a DDC one does not,
+   other than the key handler's extra `PowerOnPanelForOSDDisplay`.
+
+Experiments on p3c that need no flash, in the black state after Set 0xD6 = 1 (each tells the two apart):
+- Dark room: is there backlight glow? Glow = black frame (1). No glow = backlight or panel off.
+- Send a second and a third DDC switch (DP -> HDMI -> DP). If the picture returns on a later switch, the key path
+  was not special.
+- Press only the menu key, wait 5 s, then send one DDC switch. If the picture returns now, the missing piece is the
+  key handler's backlight call.
+- Read Get 0x10 and set brightness: any visible change means the backlight is on.
+
+### p3d: do not use the sequencer (the fix)
+
+Soft standby in p3d is the backlight alone, with the two calls stock makes around every input change:
+
+- Set 0xD6 = 4: `SecHalBoard_SetBacklight(0)`, `LedOff`, flag = 1. Not skipped when the flag is already 1.
+- Set 0xD6 = 1 (only when the flag is 1): `SecHalBoard_SetBacklight(1)`, `LedOn`, flag = 0.
+- Set 0xD6 = 5 and everything else: as p3c.
+
+Why this is the safe choice: both directions are exercised by stock at run time on every switch (hardware: every
+`Confirmed` switch ends with a lit picture), `0x1B0500` proves the off call is made from the DDC handler context, the
+scaler, the panel power, the transmitter and the output timing are never touched, so there is nothing to restore.
+Cost: the panel electronics stay powered in soft standby (the backlight is the large consumer; not measured).
+Known gaps (inferred from the disassembly, to check in HIL step 6): a key press or an input change in soft standby
+relights the screen (stock code) while Get 0xD6 keeps answering 4 until the host sends 1; a second Set 0xD6 = 4
+darkens it again. Guards added: `set_backlight`, `backlight_gpio`, `backlight_pwm_gate`,
+`source_change_backlight_off`, `after_display`, `panel_sequencer_off`.
