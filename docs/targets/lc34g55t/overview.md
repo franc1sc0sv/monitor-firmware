@@ -42,7 +42,12 @@ Single source of current truth for this monitor. The dated research trail (inclu
 - **Hang on display sleep (hardware, 2026-11-23, v3.1, seen once):** the PC sent `SC_MONITORPOWER 2` (all displays
   off). The monitor went dark with **no LED**, stopped answering DDC, ignored the power button and real mouse/keyboard
   wake, while Windows kept listing it (EDID still readable). Only unplugging the power cable for 30 s recovered it.
-  Not yet reproduced, not yet compared with stock. HIL item "Standby and wake" was never run before.
+  **Reproduced 2026-11-23 with no DDC client at all** (test A: displays off 2 min, no tool running): hung again, so
+  DDC polling is not the trigger. **With OSD "Auto Source Switch" OFF it woke correctly twice in a row; with it ON it
+  hung twice.** Confirmed workaround: keep Auto Source Switch off. Root cause (stock vs patch) still unknown: the
+  failing path is the no-signal auto-source scan before standby (`tandem-re.md` §3.3). Not yet compared with stock.
+- Settings offset `0x14f` = OSD "Auto Source Switch": `0` on, `1` off. **Confirmed** 2026-11-23 (read with Get 0xF2
+  before and after the user changed it in the OSD).
 - The DP link re-trains once right after the monitor boots: Windows drops it for ~3 s about 3 s after it first
   appears. **Confirmed** (2026-11-23).
 - Stock Get 0xD6 is unreliable: it mostly returns the previous request's reply (stale buffer), once `0xD8/0x02`.
