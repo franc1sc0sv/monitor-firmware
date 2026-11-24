@@ -94,6 +94,24 @@ polls (no main-loop tap); event times and the 0xEF clock tick in 1 s steps and w
 one false "rebooted" a day (re-reads the ring, no loss) until the crate or the image handles it; source detection
 not located (bit 5 = 0); soft standby keeps audio.
 
+## 0.5 34" v3.2 flashed (2026-11-23, user present and approving)
+
+- Backup: two ISP reads of the installed flash, equal (`7fd8c35d…`), identical to v3.1 + stock trailer; kept locally
+  as `data/dumps/lc34-v3.1-installed.bin`.
+- Flashed `out/lc34-v3.2-flash.bin` (v3.2 with the installed trailer sector, sha256 `e53938d1…`) over
+  `0x11000..0x161000` with `flash.ps1` (refactored tool, first hardware use: test mode OK, write OK, 297 sectors in
+  573 s). The 0x2bf000 trailer CRC stays stale exactly as with v3.1 (boot does not check it). Reads take ~830 s each.
+- After boot (**confirmed**): Get 0xEA ML = 3, 0xE8 = caps `0x01FF`, cable mask `0x03`, flags bit 1 = source
+  detection manual (Auto Source Switch off); Get D6 = 1; picture, joystick and OSD normal (key wrapper transparent).
+- Soft standby (**confirmed**): D6 = 4 → Get D6 = 4, flags bit 0, events `0x13`, `0x14 1→4`; the monitor stays
+  listed by Windows; D6 = 1 wakes it (`0x14 1→1`). Through `monitor-ddc` `Desk`: `power_off` → `PowerChanged
+  Standby` in 0.7 s, `power_on` → `PowerChanged On`, `shows_this_host` true again. **The first attempt had no
+  visible effect** (state and events changed, panel stayed on) right after the user had used the OSD; the second
+  blanked and woke correctly. Inferred: panel-off is ignored while the OSD is active. To check: repeat with and
+  without OSD use; if confirmed, the patch must wait for the OSD to close or close it first.
+- Not yet tested on v3.2: switch guard, cable-mask events, key wake from soft standby, D6 = 5, the display-sleep test
+  with Auto Source Switch off.
+
 ## 1. What Tandem needs, as firmware features
 
 Target: **protocol 3**, the same VCP layout and event ids on both monitors, so Tandem uses one driver and only the

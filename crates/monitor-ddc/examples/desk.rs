@@ -141,13 +141,15 @@ fn main() -> ExitCode {
                 state.name,
                 desk.power_off(&state.id)
             );
+            // Watch the standby, then try to wake by command (Unsupported without protocol 3).
+            watch(&mut desk, start, secs(2, 8));
             println!(
-                "{:7.2}s power-on {} (expected Unsupported): {:?}",
+                "{:7.2}s power-on {}: {:?}",
                 start.elapsed().as_secs_f64(),
                 state.name,
                 desk.power_on(&state.id)
             );
-            watch(&mut desk, start, secs(2, 8));
+            watch(&mut desk, start, 4);
         }
         other => {
             eprintln!("unknown command {other:?}");
