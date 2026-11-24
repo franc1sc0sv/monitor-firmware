@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::bus::MonitorHandle;
 use crate::error::DdcError;
 use crate::profile::{PowerControl, ProfiledMonitor, ProfiledVerdict, VCP_POWER};
-use crate::protocol::{Input, Link, StandardMonitor, Verdict};
+use crate::protocol::{CapabilityWord, Input, Link, StandardMonitor, Verdict};
 
 /// Where the reported input comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,9 +39,13 @@ pub struct Capabilities {
     pub signal: bool,
     /// Can be put in standby by command.
     pub power_off: bool,
-    /// Can be woken by command over DDC. False on both supported models: the 34" drops its DP link in
-    /// standby and the G5 ignores 0xD6 (confirmed 2026-11-23).
+    /// Can be woken by command over DDC: only with protocol 3 soft standby. On stock firmware and
+    /// protocol 2 the 34" drops its DP link in standby and the G5 ignores 0xD6 (confirmed 2026-11-23).
     pub power_on: bool,
+    /// Reports the cable state of every input, the one not on screen included (protocol 3).
+    pub cable_detect: bool,
+    /// Refuses a switch to an input without cable before switching (protocol 3).
+    pub switch_guard: bool,
 }
 
 /// Power as the monitor itself reports it while it answers. A monitor that stopped answering or left
@@ -61,6 +65,15 @@ pub struct Status {
     pub power: Power,
     /// Picture on the active input; `None` when the model cannot tell.
     pub signal: Option<bool>,
+    /// Cable / +5 V detected per input (bit 0 DP, bit 1 HDMI); `None` when the model cannot tell.
+    pub cable_mask: Option<u8>,
+}
+
+impl Status {
+    /// Cable detected on `input`; `None` when the model cannot tell.
+    pub fn cable(&self, input: Input) -> Option<bool> {
+        self.cable_mask.map(|m| m & (1 << input.port()) != 0)
+    }
 }
 
 /// Result of an input switch, the same for every model.
@@ -114,42 +127,57 @@ impl Monitor {
 
     pub fn capabilities(&self) -> Capabilities {
         match self {
-            Monitor::Standard(_) => Capabilities {
-                input_truth: InputTruth::Firmware,
-                switch_proof: SwitchProof::Picture,
-                signal: true,
-                power_off: true,
-                power_on: false,
-            },
+            Monitor::Standard(m) => {
+                let caps = m.caps();
+                let has = |bit| caps.is_some_and(|c| c.has(bit));
+                Capabilities {
+                    input_truth: InputTruth::Firmware,
+                    switch_proof: SwitchProof::Picture,
+                    signal: true,
+                    power_off: true,
+                    power_on: has(CapabilityWord::POWER_WAKE),
+                    cable_detect: has(CapabilityWord::CABLE_DETECT),
+                    switch_guard: has(CapabilityWord::SWITCH_GUARD),
+                }
+            }
             Monitor::Profiled(m) => Capabilities {
                 input_truth: InputTruth::Polled,
                 switch_proof: SwitchProof::Accepted,
                 signal: false,
                 power_off: m.profile().power != PowerControl::None,
                 power_on: false,
+                cable_detect: false,
+                switch_guard: false,
             },
         }
     }
 
-    /// One status read (one Get on either kind: 0xEE or 0x60).
+    /// One status read: 0xEE (plus 0xE8 on protocol 3) on a patched monitor, 0x60 on a profiled one.
     pub fn status(&self) -> Result<Status, DdcError> {
         match self {
             Monitor::Standard(m) => {
                 let live = m.live()?;
+                let word = m.capability_word()?;
+                let soft = word.is_some_and(|w| w.soft_standby());
+                let cables = word
+                    .filter(|w| w.has(CapabilityWord::CABLE_DETECT))
+                    .map(|w| w.cable_mask);
                 Ok(Status {
                     input: live.input(),
-                    power: if live.power_on() {
+                    power: if live.power_on() && !soft {
                         Power::On
                     } else {
                         Power::Standby
                     },
                     signal: Some(live.signal),
+                    cable_mask: cables,
                 })
             }
             Monitor::Profiled(m) => Ok(Status {
                 input: m.input()?,
                 power: Power::On,
                 signal: None,
+                cable_mask: None,
             }),
         }
     }
@@ -176,8 +204,9 @@ impl Monitor {
         }
     }
 
-    /// Puts the monitor in standby (MCCS 0xD6 = 4). On the 34" this also drops its DP link, so it cannot
-    /// be woken by command from a DP host afterwards. `Unsupported` where the model ignores 0xD6.
+    /// Puts the monitor in standby (MCCS 0xD6 = 4). With protocol 3 this is the soft standby: the panel
+    /// goes dark, the monitor stays reachable and [`Self::power_on`] wakes it. Without it the 34" drops
+    /// its DP link, so it cannot be woken by command from a DP host. `Unsupported` where 0xD6 is ignored.
     pub fn power_off(&self) -> Result<(), DdcError> {
         if !self.capabilities().power_off {
             return Err(DdcError::Unsupported { code: VCP_POWER });
@@ -188,10 +217,13 @@ impl Monitor {
         }
     }
 
-    /// Wakes the monitor by command. No supported model can (see [`Capabilities::power_on`]): always
-    /// `Unsupported` today, so callers fall back to waking by video signal or the power button.
+    /// Wakes the monitor from soft standby (MCCS 0xD6 = 1). `Unsupported` unless the firmware announces
+    /// power wake ([`Capabilities::power_on`]); callers then fall back to a video signal or the button.
     pub fn power_on(&self) -> Result<(), DdcError> {
-        Err(DdcError::Unsupported { code: VCP_POWER })
+        match self {
+            Monitor::Standard(m) if self.capabilities().power_on => m.set_vcp(VCP_POWER, 1),
+            _ => Err(DdcError::Unsupported { code: VCP_POWER }),
+        }
     }
 
     /// Same monitor on a handle from a newer enumeration (checks are not repeated).

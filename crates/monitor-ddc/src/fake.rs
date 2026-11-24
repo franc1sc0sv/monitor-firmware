@@ -11,7 +11,7 @@ use crate::bus::{DdcBus, MonitorHandle, MonitorInfo, VcpReply};
 use crate::clock::Clock;
 use crate::edid::Edid;
 use crate::error::DdcError;
-use crate::protocol::{Input, VCP_INPUT};
+use crate::protocol::{Input, InputCodes, VCP_INPUT};
 
 const RING: usize = 64;
 
@@ -85,6 +85,12 @@ pub struct FakeMonitorConfig {
     pub retrain_drops: u32,
     /// What a [`Personality::Garbage`] monitor answers to every Get.
     pub garbage: VcpReply,
+    /// Protocol a [`Personality::Standard`] monitor reports (2 = v3.1, 3 = v3.2 / G5 production image).
+    pub protocol: u8,
+    /// Set/Get 0x60 values (Samsung `0x09`/`0x06` on the 34", MCCS `0x0F`/`0x11` on the G5).
+    pub input_codes: InputCodes,
+    /// Cable detect per input (bit 0 DP, bit 1 HDMI); protocol 3 reports it and guards switches with it.
+    pub cables: u8,
 }
 
 impl FakeMonitorConfig {
@@ -103,6 +109,9 @@ impl FakeMonitorConfig {
                 max: 0xFF05,
                 current: 0x1234,
             },
+            protocol: 2,
+            input_codes: InputCodes::SAMSUNG,
+            cables: 0b11,
         }
     }
 }
@@ -115,6 +124,29 @@ impl FakeMonitorConfig {
             edid: test_edid("SAM", 0x7489, "Odyssey G5", "FAKE0000002"),
             switch_delay: Duration::from_millis(1500),
             ..Self::new(Personality::G5Stock)
+        }
+    }
+}
+
+impl FakeMonitorConfig {
+    /// The 34" with patch v3.2 (protocol 3: capability word, soft standby, cable detect, switch guard).
+    pub fn lc34_v32() -> Self {
+        Self {
+            protocol: 3,
+            ..Self::new(Personality::Standard)
+        }
+    }
+
+    /// The G5 with the protocol 3 production image (same protocol, MCCS input values).
+    pub fn g5_p3() -> Self {
+        Self {
+            personality: Personality::Standard,
+            protocol: 3,
+            input_codes: InputCodes {
+                dp: 0x0F,
+                hdmi: 0x11,
+            },
+            ..Self::g5()
         }
     }
 }
@@ -189,6 +221,8 @@ struct FakeMonitor {
     pending: Vec<(Duration, Pending)>,
     /// False after the power button or a standby that drops the link: not listed, no replies.
     powered: bool,
+    /// Protocol 3 soft standby: panel dark, still answering.
+    soft_standby: bool,
     /// G5 stock: what Get 0x60 reports (the requested input as soon as a Set arrives).
     reported: Input,
     /// Requests still to drop with no reply (a link retraining, a noisy cable).
@@ -204,6 +238,7 @@ impl FakeMonitor {
             input: config.input,
             reported: config.input,
             powered: true,
+            soft_standby: false,
             config,
             seq: 0,
             ring: [Record::default(); RING],
@@ -276,6 +311,7 @@ impl FakeMonitor {
         self.ring = [Record::default(); RING];
         self.cursor = 0;
         self.pending.clear();
+        self.soft_standby = false;
         self.booted_at = now;
         self.log(now, 0x00, 0, 0);
     }
@@ -301,7 +337,7 @@ impl FakeMonitor {
             }
             VCP_INPUT if self.standard() => Ok(VcpReply {
                 max: 0x0E,
-                current: self.input.vcp(),
+                current: self.config.input_codes.vcp(self.input),
             }),
             VCP_INPUT => Ok(VcpReply {
                 max: 0x0E,
@@ -309,8 +345,18 @@ impl FakeMonitor {
             }),
             _ if !self.standard() => Err(DdcError::Unsupported { code }),
             0xEA => Ok(VcpReply {
-                max: u16::from_be_bytes([RING as u8, 2]),
+                max: u16::from_be_bytes([RING as u8, self.config.protocol]),
                 current: self.seq,
+            }),
+            0xE8 if self.config.protocol >= 3 => Ok(r(
+                self.config.cables,
+                u8::from(self.soft_standby),
+                0x01,
+                0xBF, // bits 0..5, 7, 8: everything but memory access
+            )),
+            0xD6 if self.config.protocol >= 3 => Ok(VcpReply {
+                max: 5,
+                current: if self.soft_standby { 4 } else { 1 },
             }),
             0xEB => Ok(VcpReply {
                 max: 0,
@@ -354,9 +400,19 @@ impl FakeMonitor {
             }
             VCP_INPUT => {
                 // Unknown input values are ignored, like the firmware does.
-                let Some(to) = Input::from_vcp(value) else {
+                let Some(to) = self.config.input_codes.input(value) else {
                     return Ok(());
                 };
+                // Protocol 3 switch guard: no cable on the target, refused at once.
+                if self.standard()
+                    && self.config.protocol >= 3
+                    && self.config.cables & (1 << to.port()) == 0
+                {
+                    let cur = self.input.port();
+                    self.log(now, 0x10, cur, value.to_be_bytes()[1]);
+                    self.log(now, 0x12, to.port(), cur);
+                    return Ok(());
+                }
                 let due = now + self.config.switch_delay;
                 self.drop_next = self.config.retrain_drops;
                 if self.standard() {
@@ -373,6 +429,18 @@ impl FakeMonitor {
             }
             0xEB if self.standard() => self.cursor = value,
             // The 34" goes to standby on 0xD6 = 4/5 and its DP link drops with it (2026-11-23).
+            0xD6 if self.standard() && self.config.protocol >= 3 && value == 4 => {
+                if !self.soft_standby {
+                    self.soft_standby = true;
+                    self.log(now, 0x14, 1, 4);
+                }
+            }
+            0xD6 if self.standard() && self.config.protocol >= 3 && value == 1 => {
+                if self.soft_standby {
+                    self.soft_standby = false;
+                    self.log(now, 0x14, 1, 1);
+                }
+            }
             0xD6 if self.standard() && matches!(value, 4 | 5) => self.powered = false,
             // Writes to unknown codes have no acknowledgement on the wire: accepted and ignored.
             _ => {}
@@ -494,6 +562,24 @@ impl FakeBus {
             }
             Ok(())
         });
+    }
+
+    /// Plugs or unplugs cables (bit 0 DP, bit 1 HDMI); protocol 3 logs a `cable-mask` event.
+    pub fn set_cables(&self, handle: MonitorHandle, mask: u8) {
+        let now = self.clock.now();
+        let _ = self.with(handle, |m| {
+            let old = m.config.cables;
+            m.config.cables = mask;
+            if m.standard() && m.config.protocol >= 3 && old != mask {
+                m.log(now, 0x15, old, mask);
+            }
+            Ok(())
+        });
+    }
+
+    /// True while a protocol 3 monitor is in soft standby.
+    pub fn is_soft_standby(&self, handle: MonitorHandle) -> bool {
+        self.with(handle, |m| Ok(m.soft_standby)).unwrap_or(false)
     }
 
     /// True while the monitor is powered (not off by button or by a standby that drops the link).

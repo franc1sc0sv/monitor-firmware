@@ -19,11 +19,13 @@ pub const VCP_RECORD: u8 = 0xEC;
 pub const VCP_RECORD_TIME: u8 = 0xED;
 pub const VCP_LIVE: u8 = 0xEE;
 pub const VCP_CLOCK: u8 = 0xEF;
+/// Protocol 3 capability word (docs/protocol/vcp-interface.md, "Protocol 3").
+pub const VCP_CAPS: u8 = 0xE8;
 /// Oldest protocol version (Get 0xEA ML) this crate speaks.
 pub const MIN_PROTOCOL: u8 = 2;
 /// Newest protocol version this crate speaks. The version only changes when the meaning or layout of an
 /// existing code changes, so a newer one is not assumed to be compatible.
-pub const MAX_PROTOCOL: u8 = 2;
+pub const MAX_PROTOCOL: u8 = 3;
 /// Ring size the firmware reports in Get 0xEA MH. Anything else is not the firmware's ring.
 pub const RING_SIZE: u8 = 0x40;
 
@@ -90,6 +92,85 @@ impl FromStr for Input {
             "hdmi" => Ok(Input::Hdmi),
             other => Err(DdcError::Protocol(format!("unknown input {other:?}"))),
         }
+    }
+}
+
+/// Set/Get 0x60 values of one model. The ring and 0xEE always use port numbers (0 DP, 1 HDMI).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputCodes {
+    pub dp: u16,
+    pub hdmi: u16,
+}
+
+impl InputCodes {
+    /// Samsung encoding of the MStar 34" (`0x09` DP, `0x06` HDMI).
+    pub const SAMSUNG: Self = Self {
+        dp: 0x09,
+        hdmi: 0x06,
+    };
+
+    pub fn vcp(&self, input: Input) -> u16 {
+        match input {
+            Input::DisplayPort => self.dp,
+            Input::Hdmi => self.hdmi,
+        }
+    }
+
+    pub fn input(&self, value: u16) -> Option<Input> {
+        let v = value & 0xFF;
+        if v == self.dp {
+            Some(Input::DisplayPort)
+        } else if v == self.hdmi {
+            Some(Input::Hdmi)
+        } else {
+            None
+        }
+    }
+}
+
+/// Get 0xE8 (protocol 3): what the firmware can do and the cable state now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CapabilityWord {
+    /// Cable / +5 V detect per input (bit 0 DP, bit 1 HDMI).
+    pub cable_mask: u8,
+    pub flags: u8,
+    pub bits: u16,
+}
+
+impl CapabilityWord {
+    pub const REAL_INPUT: u16 = 1 << 0;
+    pub const SWITCH_VERDICT: u16 = 1 << 1;
+    pub const EVENTS: u16 = 1 << 2;
+    pub const POWER_WAKE: u16 = 1 << 3;
+    pub const CABLE_DETECT: u16 = 1 << 4;
+    pub const SOURCE_DETECT: u16 = 1 << 5;
+    pub const MEMORY_ACCESS: u16 = 1 << 6;
+    pub const GET_D6: u16 = 1 << 7;
+    pub const SWITCH_GUARD: u16 = 1 << 8;
+
+    pub fn from_reply(r: VcpReply) -> Self {
+        Self {
+            cable_mask: r.mh(),
+            flags: r.ml(),
+            bits: r.current,
+        }
+    }
+
+    pub fn has(&self, bit: u16) -> bool {
+        self.bits & bit != 0
+    }
+
+    pub fn soft_standby(&self) -> bool {
+        self.flags & 0x01 != 0
+    }
+
+    pub fn source_detect_manual(&self) -> bool {
+        self.flags & 0x02 != 0
+    }
+
+    /// Cable detected on `input` (meaningful only with [`Self::CABLE_DETECT`]).
+    pub fn cable(&self, input: Input) -> bool {
+        self.cable_mask & (1 << input.port()) != 0
     }
 }
 
@@ -190,6 +271,10 @@ pub enum EventKind {
     SwitchDone,
     SwitchFailed,
     DdcPowerRequest,
+    /// Protocol 3: `old` = cause, `new` = power state.
+    PowerState,
+    /// Protocol 3: `old`/`new` = cable mask.
+    CableMask,
     SettingChanged,
     Unknown(u8),
 }
@@ -210,6 +295,8 @@ impl EventKind {
             0x11 => EventKind::SwitchDone,
             0x12 => EventKind::SwitchFailed,
             0x13 => EventKind::DdcPowerRequest,
+            0x14 => EventKind::PowerState,
+            0x15 => EventKind::CableMask,
             0x20 | 0x21 => EventKind::SettingChanged,
             other => EventKind::Unknown(other),
         }
@@ -230,6 +317,8 @@ impl EventKind {
             EventKind::SwitchDone => "switch-done",
             EventKind::SwitchFailed => "switch-failed",
             EventKind::DdcPowerRequest => "ddc-power-request",
+            EventKind::PowerState => "power-state",
+            EventKind::CableMask => "cable-mask",
             EventKind::SettingChanged => "setting-changed",
             EventKind::Unknown(_) => "unknown",
         }
@@ -369,10 +458,20 @@ impl Link {
     /// Probes and, only if compatible, returns the controllable monitor.
     pub fn open_standard(self) -> Result<StandardMonitor, DdcError> {
         match self.probe() {
-            Probe::Compatible(info) => Ok(StandardMonitor {
-                link: self,
-                protocol: info.protocol,
-            }),
+            Probe::Compatible(info) => {
+                // Protocol 3 announces its capabilities once; read them now (one Get).
+                let caps = if info.protocol >= 3 {
+                    Some(CapabilityWord::from_reply(self.get(VCP_CAPS)?))
+                } else {
+                    None
+                };
+                Ok(StandardMonitor {
+                    link: self,
+                    protocol: info.protocol,
+                    codes: InputCodes::SAMSUNG,
+                    caps,
+                })
+            }
             Probe::NotCompatible(why) => Err(DdcError::NotCompatible(why)),
             Probe::NoChannel(e) => Err(e),
         }
@@ -421,6 +520,9 @@ impl Link {
 pub struct StandardMonitor {
     link: Link,
     protocol: u8,
+    codes: InputCodes,
+    /// Capability word read when opened (protocol 3 only).
+    caps: Option<CapabilityWord>,
 }
 
 impl StandardMonitor {
@@ -429,6 +531,8 @@ impl StandardMonitor {
         Self {
             link,
             protocol: self.protocol,
+            codes: self.codes,
+            caps: self.caps,
         }
     }
 
@@ -438,6 +542,29 @@ impl StandardMonitor {
 
     pub fn protocol(&self) -> u8 {
         self.protocol
+    }
+
+    /// Uses this model's Set/Get 0x60 values (the G5 uses MCCS `0x0F`/`0x11`, the 34" Samsung `0x09`/`0x06`).
+    pub fn with_input_codes(mut self, codes: InputCodes) -> Self {
+        self.codes = codes;
+        self
+    }
+
+    pub fn input_codes(&self) -> InputCodes {
+        self.codes
+    }
+
+    /// The capability word read when the monitor was opened (`None` below protocol 3).
+    pub fn caps(&self) -> Option<CapabilityWord> {
+        self.caps
+    }
+
+    /// Get 0xE8. `None` below protocol 3 (the code is not part of the protocol there).
+    pub fn capability_word(&self) -> Result<Option<CapabilityWord>, DdcError> {
+        if self.protocol < 3 {
+            return Ok(None);
+        }
+        Ok(Some(CapabilityWord::from_reply(self.link.get(VCP_CAPS)?)))
     }
 
     pub fn ring_info(&self) -> Result<RingInfo, DdcError> {
@@ -462,7 +589,7 @@ impl StandardMonitor {
 
     /// Get 0x60: with the firmware this is the input on screen.
     pub fn input(&self) -> Result<Option<Input>, DdcError> {
-        Ok(Input::from_vcp(self.link.get(VCP_INPUT)?.current & 0xFF))
+        Ok(self.codes.input(self.link.get(VCP_INPUT)?.current))
     }
 
     pub fn get_vcp(&self, code: u8) -> Result<VcpReply, DdcError> {
@@ -550,7 +677,8 @@ impl StandardMonitor {
     pub fn switch_input(&self, target: Input, timeout: Duration) -> Result<Verdict, DdcError> {
         let clock = &self.link.clock;
         let mut last = self.ring_info()?.newest;
-        self.link.set(VCP_INPUT, target.vcp())?;
+        let value = self.codes.vcp(target);
+        self.link.set(VCP_INPUT, value)?;
         let deadline = clock.now() + timeout;
         let mut requested = false;
         while clock.now() < deadline {
@@ -562,7 +690,7 @@ impl StandardMonitor {
                 last = next;
                 let about_target = |port: u8| Input::from_port(port) == Some(target);
                 match e.kind() {
-                    EventKind::DdcSwitchRequest if u16::from(e.new) == target.vcp() => {
+                    EventKind::DdcSwitchRequest if u16::from(e.new) == value & 0xFF => {
                         requested = true
                     }
                     EventKind::SwitchDone if requested && about_target(e.new) => {

@@ -81,10 +81,10 @@ pub struct MonitorState {
 }
 
 impl MonitorState {
-    /// Whether this host's picture is on this monitor. `Some(false)` when it is off or shows the other
-    /// input; `None` when it cannot be known (unknown model, not compatible, input not read yet).
+    /// Whether this host's picture is on this monitor. `Some(false)` when it is off, in (soft) standby or
+    /// shows the other input; `None` when it cannot be known (unknown model, not compatible, input not read yet).
     pub fn shows_this_host(&self) -> Option<bool> {
-        if self.off {
+        if self.off || self.status.is_some_and(|s| s.power == Power::Standby) {
             return Some(false);
         }
         let input = self.status?.input?;
@@ -111,6 +111,8 @@ pub enum DeskEvent {
     PowerChanged { id: MonitorId, power: Power },
     /// Picture on the active input appeared or was lost (patched monitors only).
     SignalChanged { id: MonitorId, signal: bool },
+    /// A cable was plugged or unplugged on some input (protocol 3: bit 0 DP, bit 1 HDMI).
+    CablesChanged { id: MonitorId, mask: u8 },
 }
 
 struct Entry {
@@ -353,6 +355,14 @@ impl Desk {
                 events.push(DeskEvent::PowerChanged {
                     id: entry.id.clone(),
                     power: after.power,
+                });
+            }
+            if let (Some(a), Some(b)) = (before.cable_mask, after.cable_mask)
+                && a != b
+            {
+                events.push(DeskEvent::CablesChanged {
+                    id: entry.id.clone(),
+                    mask: b,
                 });
             }
             if let (Some(a), Some(b)) = (before.signal, after.signal)

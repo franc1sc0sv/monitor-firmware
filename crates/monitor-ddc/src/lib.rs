@@ -44,9 +44,10 @@ pub use profile::{
     VCP_POWER, caps_values, host_input, profile_for,
 };
 pub use protocol::{
-    Event, EventBatch, EventCursor, EventKind, Incompatibility, Input, Link, LinkConfig, LiveState,
-    MIN_PROTOCOL, Probe, RING_SIZE, RingInfo, StandardMonitor, VCP_CLOCK, VCP_CURSOR, VCP_INPUT,
-    VCP_LIVE, VCP_RECORD, VCP_RECORD_TIME, VCP_RING, Verdict,
+    CapabilityWord, Event, EventBatch, EventCursor, EventKind, Incompatibility, Input, InputCodes,
+    Link, LinkConfig, LiveState, MAX_PROTOCOL, MIN_PROTOCOL, Probe, RING_SIZE, RingInfo,
+    StandardMonitor, VCP_CAPS, VCP_CLOCK, VCP_CURSOR, VCP_INPUT, VCP_LIVE, VCP_RECORD,
+    VCP_RECORD_TIME, VCP_RING, Verdict,
 };
 
 #[cfg(target_os = "macos")]
@@ -68,7 +69,14 @@ pub enum Opened {
 /// only read; a monitor that passes neither never receives a Set.
 pub fn open(link: Link, info: &MonitorInfo) -> Opened {
     match link.clone().open_standard() {
-        Ok(m) => Opened::Standard(m),
+        // A patched monitor of a profiled model keeps that model's 0x60 values (the G5: 0x0F / 0x11).
+        Ok(m) => Opened::Standard(match profile_for(info, PROFILES) {
+            Some(p) => m.with_input_codes(InputCodes {
+                dp: p.dp,
+                hdmi: p.hdmi,
+            }),
+            None => m,
+        }),
         Err(DdcError::NotCompatible(why)) => match link.open_profiled(info, PROFILES) {
             Ok(m) => Opened::Profiled(m),
             Err(e @ (DdcError::NoReply { .. } | DdcError::NoChannel(_))) => Opened::NoChannel(e),
