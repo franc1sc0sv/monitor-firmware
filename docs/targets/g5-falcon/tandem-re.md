@@ -338,3 +338,9 @@ Flashed by USB stick over p3c; the monitor came back with protocol 3. Confirmed 
   The crate drops the cable-detect and guard bits for this model (`Profile::patched_ignored_caps`).
 - Consequence for Tandem: switch the G5 to the other host's input only when that host reports a live output; a
   switch to an input without signal ends in power saving, which `Desk` then reports as off.
+- An input change with the monitor's keys is logged as `input-port` with no `ddc-switch-request` before it, so
+  `Desk` reports it as not made by this host.
+- **Power key in soft standby:** one press brings the picture back (no real power off, unlike the p3c
+  prediction), but the hook is not told: Get 0xD6 stayed 4, 0xE8 ML bit 0 stayed set and no 0x14 event was logged
+  until the host sent Set 0xD6 = 1 about 75 s later. So for that time the host sees standby while the screen is on.
+  Fixing it needs the main-loop tap noted in section 7 (one more flash).
