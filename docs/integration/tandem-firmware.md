@@ -109,8 +109,12 @@ not located (bit 5 = 0); soft standby keeps audio.
   visible effect** (state and events changed, panel stayed on) right after the user had used the OSD; the second
   blanked and woke correctly. Inferred: panel-off is ignored while the OSD is active. To check: repeat with and
   without OSD use; if confirmed, the patch must wait for the OSD to close or close it first.
-- Not yet tested on v3.2: switch guard, cable-mask events, key wake from soft standby, D6 = 5, the display-sleep test
-  with Auto Source Switch off.
+- Power button off/on on v3.2 (**confirmed**): `Desk` `Off` then `Appeared`, as on v3.1.
+- Switch guard and cable detect (**confirmed**): HDMI cable unplugged → 0xE8 MH = `0x01`, event `0x15 03→01`;
+  `Desk::switch(hdmi)` → `Failed { current: DisplayPort }` in 0.65 s, no input change (events `0x10`, `0x12`);
+  cable plugged into the Mac (awake) → `0x15 01→03`. Cable polarity is right (bit set = present).
+- Not yet tested on v3.2: key wake from soft standby, D6 = 5, the display-sleep test with Auto Source Switch off,
+  a sleeping Mac's cable state.
 
 ## 1. What Tandem needs, as firmware features
 
