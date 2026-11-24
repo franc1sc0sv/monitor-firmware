@@ -321,3 +321,20 @@ Known gaps (inferred from the disassembly, to check in HIL step 6): a key press 
 relights the screen (stock code) while Get 0xD6 keeps answering 4 until the host sends 1; a second Set 0xD6 = 4
 darkens it again. Guards added: `set_backlight`, `backlight_gpio`, `backlight_pwm_gate`,
 `source_change_backlight_off`, `after_display`, `panel_sequencer_off`.
+
+## 8. p3d on hardware (2026-11-24)
+
+Flashed by USB stick over p3c; the monitor came back with protocol 3. Confirmed on hardware:
+
+- The dark-room check on p3c in the black state showed a faint glow: the backlight was on and the frame forced
+  black, the first candidate of section 7.
+- p3d soft standby: Set 0xD6 = 4 turns the screen fully dark (no glow), Set 0xD6 = 1 brings the picture back.
+  Events 0x14 are logged for both. Switches DP <-> HDMI are confirmed in about 2.4 s.
+- **Cable detect of the input not on screen does not work.** With DP on screen, the HDMI cable was unplugged
+  for 20 s and plugged back while 0xE8 was read every second for 90 s: MH stayed 3 throughout. So the switch guard
+  never refuses a switch to an unplugged HDMI. A switch to an HDMI without signal was accepted, the monitor
+  entered stock power saving within the 10 s wait (the SPARC stops, DDC on DP fails with dxva2 `0xC0262582`), and
+  plugging the HDMI cable back in woke it as a fresh boot (ring restarted with `boot`, clock at 1 s).
+  The crate drops the cable-detect and guard bits for this model (`Profile::patched_ignored_caps`).
+- Consequence for Tandem: switch the G5 to the other host's input only when that host reports a live output; a
+  switch to an input without signal ends in power saving, which `Desk` then reports as off.

@@ -30,7 +30,7 @@ fn by_name(desk: &Desk, name: &str) -> MonitorState {
 }
 
 #[test]
-fn both_patched_monitors_announce_the_same_capabilities() {
+fn both_patched_monitors_announce_their_measured_capabilities() {
     let (_bus, _h, mut desk) = desk_with(vec![lc34(), FakeMonitorConfig::g5_p3()]);
     desk.scan().unwrap();
     for name in ["LC34G55T", "Odyssey G5"] {
@@ -38,9 +38,15 @@ fn both_patched_monitors_announce_the_same_capabilities() {
         assert_eq!(s.kind, Some("standard"), "{name}");
         let caps = s.capabilities.unwrap();
         assert!(caps.power_on && caps.power_off, "{name}");
-        assert!(caps.cable_detect && caps.switch_guard, "{name}");
-        assert_eq!(s.status.unwrap().cable_mask, Some(0b11), "{name}");
     }
+    let lc34 = by_name(&desk, "LC34G55T");
+    assert!(lc34.capabilities.unwrap().cable_detect && lc34.capabilities.unwrap().switch_guard);
+    assert_eq!(lc34.status.unwrap().cable_mask, Some(0b11));
+    // The G5 firmware announces cable detect and the guard, but never updates the cable of the input
+    // not on screen (measured): the crate does not pass them on.
+    let g5 = by_name(&desk, "Odyssey G5");
+    assert!(!g5.capabilities.unwrap().cable_detect && !g5.capabilities.unwrap().switch_guard);
+    assert_eq!(g5.status.unwrap().cable_mask, None);
 }
 
 #[test]

@@ -71,10 +71,12 @@ pub fn open(link: Link, info: &MonitorInfo) -> Opened {
     match link.clone().open_standard() {
         // A patched monitor of a profiled model keeps that model's 0x60 values (the G5: 0x0F / 0x11).
         Ok(m) => Opened::Standard(match profile_for(info, PROFILES) {
-            Some(p) => m.with_input_codes(InputCodes {
-                dp: p.dp,
-                hdmi: p.hdmi,
-            }),
+            Some(p) => m
+                .with_input_codes(InputCodes {
+                    dp: p.dp,
+                    hdmi: p.hdmi,
+                })
+                .with_ignored_caps(p.patched_ignored_caps),
             None => m,
         }),
         Err(DdcError::NotCompatible(why)) => match link.open_profiled(info, PROFILES) {

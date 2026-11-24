@@ -138,6 +138,14 @@ pub struct CapabilityWord {
 }
 
 impl CapabilityWord {
+    /// The same word with `bits` cleared.
+    pub fn without(self, bits: u16) -> Self {
+        Self {
+            bits: self.bits & !bits,
+            ..self
+        }
+    }
+
     pub const REAL_INPUT: u16 = 1 << 0;
     pub const SWITCH_VERDICT: u16 = 1 << 1;
     pub const EVENTS: u16 = 1 << 2;
@@ -501,6 +509,7 @@ impl Link {
                     protocol: info.protocol,
                     codes: InputCodes::SAMSUNG,
                     caps,
+                    ignored: 0,
                 })
             }
             Probe::NotCompatible(why) => Err(DdcError::NotCompatible(why)),
@@ -554,6 +563,8 @@ pub struct StandardMonitor {
     codes: InputCodes,
     /// Capability word read when opened (protocol 3 only).
     caps: Option<CapabilityWord>,
+    /// Capability bits the firmware announces but this model does not deliver (measured on hardware).
+    ignored: u16,
 }
 
 impl StandardMonitor {
@@ -564,6 +575,7 @@ impl StandardMonitor {
             protocol: self.protocol,
             codes: self.codes,
             caps: self.caps,
+            ignored: self.ignored,
         }
     }
 
@@ -581,6 +593,14 @@ impl StandardMonitor {
         self
     }
 
+    /// Drops capability bits the firmware announces but this model does not deliver, from the word read
+    /// at open and from every later Get 0xE8.
+    pub fn with_ignored_caps(mut self, bits: u16) -> Self {
+        self.ignored = bits;
+        self.caps = self.caps.map(|c| c.without(bits));
+        self
+    }
+
     pub fn input_codes(&self) -> InputCodes {
         self.codes
     }
@@ -595,7 +615,9 @@ impl StandardMonitor {
         if self.protocol < 3 {
             return Ok(None);
         }
-        Ok(Some(CapabilityWord::from_reply(self.link.get(VCP_CAPS)?)))
+        Ok(Some(
+            CapabilityWord::from_reply(self.link.get(VCP_CAPS)?).without(self.ignored),
+        ))
     }
 
     pub fn ring_info(&self) -> Result<RingInfo, DdcError> {

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::bus::{MonitorHandle, MonitorInfo};
 use crate::error::DdcError;
-use crate::protocol::{Input, Link, VCP_INPUT};
+use crate::protocol::{CapabilityWord, Input, Link, VCP_INPUT};
 
 /// MCCS power mode (VCP 0xD6).
 pub const VCP_POWER: u8 = 0xD6;
@@ -44,6 +44,8 @@ pub struct Profile {
     /// Set/Get 0x60 value for HDMI.
     pub hdmi: u16,
     pub power: PowerControl,
+    /// Protocol 3 capability bits this model's patched firmware announces but does not deliver.
+    pub patched_ignored_caps: u16,
 }
 
 impl Profile {
@@ -98,6 +100,10 @@ pub const PROFILES: &[Profile] = &[Profile {
     dp: 0x0F,
     hdmi: 0x11,
     power: PowerControl::None,
+    // Production image p3d (1033.0), measured 2026-11-24: the cable state of the input not on screen never
+    // changes (HDMI unplugged for 20 s while DP was shown: 0xE8 MH stayed 3), so the switch guard cannot
+    // refuse a switch to an unplugged HDMI.
+    patched_ignored_caps: CapabilityWord::CABLE_DETECT | CapabilityWord::SWITCH_GUARD,
 }];
 
 /// Which input of the monitor a host is plugged into, from the EDID product id the host reads (the
