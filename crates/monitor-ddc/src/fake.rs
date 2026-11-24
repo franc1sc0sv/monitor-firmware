@@ -91,6 +91,8 @@ pub struct FakeMonitorConfig {
     pub input_codes: InputCodes,
     /// Cable detect per input (bit 0 DP, bit 1 HDMI); protocol 3 reports it and guards switches with it.
     pub cables: u8,
+    /// The clock (0xEF) counts whole seconds and wraps every day, like the G5 production image.
+    pub clock_wraps_daily: bool,
 }
 
 impl FakeMonitorConfig {
@@ -112,6 +114,7 @@ impl FakeMonitorConfig {
             protocol: 2,
             input_codes: InputCodes::SAMSUNG,
             cables: 0b11,
+            clock_wraps_daily: false,
         }
     }
 }
@@ -146,6 +149,7 @@ impl FakeMonitorConfig {
                 dp: 0x0F,
                 hdmi: 0x11,
             },
+            clock_wraps_daily: true,
             ..Self::g5()
         }
     }
@@ -254,7 +258,12 @@ impl FakeMonitor {
 
     fn log(&mut self, now: Duration, id: u8, old: u8, new: u8) {
         self.seq = self.seq.wrapping_add(1);
-        let time = ((now.saturating_sub(self.booted_at).as_millis() / 10) & 0xFF_FFFF) as u32;
+        let up = now.saturating_sub(self.booted_at);
+        let time = if self.config.clock_wraps_daily {
+            ((up.as_secs() % 86_400) * 100) as u32
+        } else {
+            ((up.as_millis() / 10) & 0xFF_FFFF) as u32
+        };
         self.ring[usize::from(self.seq) % RING] = Record {
             seq: self.seq,
             id,
@@ -325,7 +334,12 @@ impl FakeMonitor {
         }
         let r = VcpReply::from_bytes;
         let rec = self.ring[usize::from(self.cursor) % RING];
-        let clock = ((now.saturating_sub(self.booted_at).as_millis() / 10) & 0xFFFF_FFFF) as u32;
+        let up = now.saturating_sub(self.booted_at);
+        let clock = if self.config.clock_wraps_daily {
+            ((up.as_secs() % 86_400) * 100) as u32
+        } else {
+            ((up.as_millis() / 10) & 0xFFFF_FFFF) as u32
+        };
         match code {
             0x10 => Ok(VcpReply {
                 max: 100,

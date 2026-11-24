@@ -348,12 +348,43 @@ impl Event {
     }
 }
 
+/// Clock value (10 ms units) at which a monitor with a daily seconds tick wraps (the G5 production image).
+pub const DAILY_WRAP_10MS: u32 = 86_400 * 100;
+
+/// Largest difference between the time the host measured and the time the monitor clock advanced across
+/// its daily wrap that is still read as a wrap (10 ms units; the tick has 1 s steps and the two reads
+/// are not taken at the same instant). A reboot loses its power-off and boot time, so it reads shorter.
+const DAILY_WRAP_SLACK_10MS: u64 = 300;
+
+/// True when the clock going back from `before` to `now` is the daily wrap of a seconds tick: the
+/// monitor clock advanced across the wrap by as much time as the host measured (`host_elapsed`), and the
+/// sequence went on counting from `last` to `newest` (a reboot restarts it at 0).
+fn daily_wrap(
+    before: u32,
+    now: u32,
+    host_elapsed: Option<Duration>,
+    last: u16,
+    newest: u16,
+) -> bool {
+    let Some(host) = host_elapsed else {
+        return false;
+    };
+    if before >= DAILY_WRAP_10MS || newest.wrapping_sub(last) >= 0x8000 {
+        return false;
+    }
+    let monitor = u64::from(DAILY_WRAP_10MS - before) + u64::from(now);
+    let host = u64::try_from(host.as_millis() / 10).unwrap_or(u64::MAX);
+    monitor.abs_diff(host) <= DAILY_WRAP_SLACK_10MS
+}
+
 /// Client-side position in the event stream: the last sequence number already read, and the monitor
 /// clock (0xEF) at that read, which tells a reboot (clock went back) from a sequence wrap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EventCursor {
     pub last: u16,
     pub clock_10ms: Option<u32>,
+    /// Host clock ([`Clock::now`]) at that read, to tell a daily clock wrap from a reboot.
+    pub host_at: Option<Duration>,
 }
 
 /// Events read in one call. `lost > 0` means the ring overflowed since the previous read.
@@ -627,10 +658,12 @@ impl StandardMonitor {
 
     /// A cursor at the newest event: the next read returns only what happens from now on.
     pub fn cursor(&self) -> Result<EventCursor, DdcError> {
+        let host_at = self.link.clock.now();
         let clock = self.clock_10ms()?;
         Ok(EventCursor {
             last: self.ring_info()?.newest,
             clock_10ms: Some(clock),
+            host_at: Some(host_at),
         })
     }
 
@@ -639,11 +672,17 @@ impl StandardMonitor {
     ///
     /// A reboot restarts the sequence at 0. It is detected by the monitor clock going back (read before
     /// the ring, so a reboot in between is caught on the next call); the batch then starts at seq 1.
+    /// The G5 production image counts seconds and wraps every day: a clock that went back across that
+    /// wrap while the sequence kept counting is not a reboot (see [`daily_wrap`]).
     pub fn read_events(&self, cursor: &mut EventCursor) -> Result<EventBatch, DdcError> {
+        let host_now = self.link.clock.now();
         let clock = self.clock_10ms()?;
         let info = self.ring_info()?;
         let ring = u16::from(info.ring_size);
-        let rebooted = cursor.clock_10ms.is_some_and(|before| clock < before);
+        let host = cursor.host_at.map(|at| host_now.saturating_sub(at));
+        let rebooted = cursor.clock_10ms.is_some_and(|before| {
+            clock < before && !daily_wrap(before, clock, host, cursor.last, info.newest)
+        });
         let mut last = if rebooted { 0 } else { cursor.last };
         let mut gap = info.newest.wrapping_sub(last);
         let mut lost = 0;
@@ -660,6 +699,7 @@ impl StandardMonitor {
         *cursor = EventCursor {
             last,
             clock_10ms: Some(clock),
+            host_at: Some(host_now),
         };
         Ok(EventBatch {
             events,

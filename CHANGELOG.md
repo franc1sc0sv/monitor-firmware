@@ -8,6 +8,8 @@
 - Rust crate `monitor-ddc` (`crates/monitor-ddc`): `DdcBus` trait with Windows (dxva2 + SetupAPI EDID) and macOS
   (IOAVService, loaded at run time) backends, read-only probe (Get 0xEA), live state, events with a cursor, input
   switch with the firmware verdict, `<model>-<hash>` monitor id, `FakeBus` double. Used by Tandem.
+- `monitor-ddc`: the G5 production image's daily clock wrap is no longer read as a reboot (`EventCursor` keeps the
+  host time of the read).
 
 ## Firmware (LC34G55T 1006.0)
 - **v3.1** memory read, settings write, menu apply, setting-changed events (scanner fix).

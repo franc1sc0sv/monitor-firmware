@@ -70,6 +70,8 @@ running. Whether the main loop then leaves the panel off (and whether the sequen
   clock table exists at `0xA803B180` (not used by the patch).
 - **Time base (unit inferred):** `0xA8037D2C` is incremented by one in `__DpmsHandler` (`0x18FD80`) and wraps at
   86400: a seconds counter. The patch reports it x100 in the 10 ms fields, so times have 1 s steps and wrap daily.
+  The crate tells that wrap from a reboot by the host's own elapsed time and the sequence (`daily_wrap` in
+  `crates/monitor-ddc/src/protocol.rs`), so the wrap is not reported as `rebooted`.
 - **Codes:** Get 0xE8 and 0xEA go to the "unsupported" target `0x188300` in stock (free). Get 0xEB..0xEF and Set 0xEB
   **have stock Samsung handlers** (0xEB is a service escape with a sub-command table); the ring shadows them.
 

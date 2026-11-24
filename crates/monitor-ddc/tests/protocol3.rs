@@ -156,3 +156,31 @@ fn power_and_cable_events_decode_from_the_ring() {
         ]
     );
 }
+
+#[test]
+fn g5_daily_clock_wrap_is_not_a_reboot() {
+    let bus = FakeBus::new(FakeClock::new());
+    let h = bus.add(FakeMonitorConfig::g5_p3());
+    let m = Link::new(Arc::new(bus.clone()), Arc::new(bus.clock()), h)
+        .open_standard()
+        .unwrap();
+    // Up for almost a day: the next reads cross the G5's daily seconds wrap.
+    bus.clock().advance(Duration::from_secs(86_400 - 3));
+    let mut cursor = m.cursor().unwrap();
+    bus.clock().advance(Duration::from_secs(5));
+    bus.osd_switch(h, Input::Hdmi);
+    let batch = m.read_events(&mut cursor).unwrap();
+    assert!(!batch.rebooted);
+    assert!(batch.events.iter().all(|e| e.kind() != EventKind::Boot));
+    assert!(!batch.events.is_empty());
+
+    // A real reboot across the same wrap is still one.
+    bus.clock().advance(Duration::from_secs(86_400 - 10));
+    let mut cursor = m.cursor().unwrap();
+    bus.clock().advance(Duration::from_secs(20));
+    bus.reboot(h);
+    bus.osd_switch(h, Input::DisplayPort);
+    let batch = m.read_events(&mut cursor).unwrap();
+    assert!(batch.rebooted);
+    assert_eq!(batch.events[0].kind(), EventKind::Boot);
+}
