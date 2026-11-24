@@ -1,15 +1,17 @@
 # Roadmap and open work
 
-State on 2026-11-16: LC34G55T runs v3.1 (protocol 2). Client 0.3.0 with HTTP API and UI (single monitor). The 32"
-G5 FALCON is **bricked** (DDC flasher incident, 2026-11-16) and waits for SPI-programmer recovery. Next focus: the
-two-monitor / two-computer integration with Tandem — plan in `docs/integration/tandem.md`.
+State on 2026-11-23: LC34G55T runs v3.1 (protocol 2). The 32" G5 FALCON was recovered by SPI programmer on
+2026-11-22 and is controlled on stock firmware through the `g5-falcon` profile of `monitor-ddc` (ADR-0020). Focus:
+Tandem with both monitors — contract in `docs/integration/tandem.md`, firmware plan and Phase A results in
+`docs/integration/tandem-firmware.md`.
 
 ## Next
 
 - **Now — Tandem integration** (`docs/integration/tandem.md`): monitor profiles (data), runtime driver probe, `/api/monitors`,
   per-monitor SSE, hot-plug, two-monitor simulator. Built so the repaired G5 joins with only a profile edit.
-- **Now — G5 recovery**: CH341A + clip on IC901, read the full 8 MB first (permanent backup), repair only what the dump
-  shows (`firmware-re.md`, section INCIDENT). No flash write without the user's OK in the moment.
+- **Now — power on by command**: impossible from the DP host today (34" drops DP in standby, G5 ignores 0xD6).
+  Next test: DDC from the Mac over HDMI while the 34" is in standby, and wake by video signal.
+- **Done 2026-11-22 — G5 recovery** by SPI programmer; record which image bank A runs (OSD).
 1. **Settings map**: map the remaining OSD items (refresh rate, game mode, response time, adaptive sync, eye saver,
    black equalizer, off timer, power LED...). Static route: follow the menu engine (`0x284884`, apply table
    `0x378810`, OSD text tables). Dynamic route: `map-setting` skill with the UI's settings grid.

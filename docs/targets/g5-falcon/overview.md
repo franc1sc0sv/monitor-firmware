@@ -1,9 +1,10 @@
 # Samsung Odyssey G5 "FALCON": current state
 
-> **Status 2026-11-16: bricked** (no LED, no EDID/DDC) after a DDC sector job most likely erased the active bank's
-> 8051 runtime sector `0x01F000`, followed by a reboot. Recovery: SPI programmer (CH341A + SOIC-8 clip) on IC901
-> (Winbond W25Q64JV, 8 MB, 3.3 V, bottom side of BN41-03194A), read the full chip first, then repair only the damaged
-> range. Details: `firmware-re.md`, section "INCIDENT". How it rejoins the setup: `docs/integration/tandem.md` §4.
+> **Status 2026-11-23: working.** Recovered on 2026-11-22 with the SPI programmer (CH341A + clip on IC901): full
+> reads first, then sector `0x41F000` rewritten and verified by flashrom, boot tag set to bank A (logs in
+> `data/dumps/g5-offboard/`, local only). Which image bank A holds (stock 1008.3 or a 1019-1021 dev image) is **not
+> recorded yet**: read it from the OSD. The 2026-11-16 incident is in `firmware-re.md`, section "INCIDENT".
+> Controlled today through the `g5-falcon` profile of `monitor-ddc` (ADR-0020), no patch needed.
 
 Second monitor. Unlike the LC34G55T (MStar MST9U, fully controlled), this is a **Novatek NT68500** platform and the
 MStar patch/ISP tooling does not port. This page is the single source of truth for it; evidence trail is inline.
@@ -19,6 +20,20 @@ Confidence per ADR-0001.
 | Ports | DisplayPort → NVIDIA RTX 5080; single HDMI → AMD iGPU (gives raw ADL I2C). **Has a USB-A port** (firmware-update input). | confirmed (DP/HDMI); USB-A from user 2026-11-15 |
 | Caps `cmds` | `01 02 03 07 0C E3 F3` — all standard MCCS (Get/Set/TimingReq/Save/CapsReply/CapsReq). **No vendor command opcode.** `E3`/`F3` are *not* vendor; they are the MCCS Capabilities Reply/Request. | confirmed |
 | Caps `vcp` | `02 04 05 08 10 12 14(05 08 0B 0C) 16 18 1A 52 60(01 03 04 11 12 0F 10) 62 8D FF`, `mccs_ver(2.0)`, `asset_eep(32)`, `mpu_ver(01)` | confirmed (prior capture) |
+
+## DDC/CI from the PC over DisplayPort (hardware, 2026-11-23)
+
+Windows dxva2, NVIDIA DP, after the SPI recovery. All **confirmed**:
+
+- Capabilities: `model(LEMON23)`, `vcp(02 04 05 08 10 12 14(05 08 0B 0C) 16 18 1A 52 60(11 0F ) 62 87 8D CC)`,
+  `mccs_ver(2.0)`. No 0xD6 in the list. EDID product `0x7489` on DP.
+- **Get 0x60 reports the input on screen**: it read `0x11` over DP while the monitor showed the Mac on HDMI.
+- **Set 0x60 = 0x0F shows DP, 0x11 shows HDMI** (user saw black 1-2 s, then the PC, then back to the Mac). Get 0x60
+  reports the target ~0.6 s after the Set, before the picture is up.
+- **0xD6 does nothing**: Set 4, 5 and 1 had no visible effect; Get 0xD6 = `0/0`.
+- Get 0xEA fails (no event ring: stock behaviour). 0x10 and 0x12 read `0x32/0x32`; 0x62 `0x32/0x64`, 0xCC
+  `0x02/0x26`, 0x14 `0x01/0x04`.
+- `monitor-ddc` opens it as `profiled g5-falcon` and switched it DP and back with `Accepted` both ways.
 
 ## DDC/CI behaviour observed on hardware (2026-11-15)
 

@@ -34,6 +34,15 @@ Single source of current truth for this monitor. The dated research trail (inclu
 - Energy cap (stock, US models "XZA"): when `0x2041d6` (VCP F7 / menu item 0x31) is non-zero and an adaptive-sync
   condition holds, the backlight is pinned to `0x2041c2` (52, from `0x2802f3`) and brightness is ignored. Writing
   VCP F7 = 1 clears it. Seen once during testing; it looked like "dull picture, brightness does nothing".
+- Power (hardware, 2026-11-23, Windows over NVIDIA DP, v3.1): Set 0xD6 = 4 puts the monitor in standby (LED on) and
+  the DP link drops at once: Windows lists one monitor fewer, every Get fails and Set 0xD6 = 1 has no handle to go
+  to. Waking took the power button (it came back on HDMI and the Mac re-arranged its displays). **Confirmed.** So
+  "power on by command" is not possible from the DP host with the current firmware; open routes: a video signal, a
+  DDC request from the HDMI host while in standby (untested), or a patch (Tandem plan, Phase C).
+- Stock Get 0xD6 is unreliable: it mostly returns the previous request's reply (stale buffer), once `0xD8/0x02`.
+  Use the power flags in 0xEE instead. **Confirmed** (2026-11-23, eight reads interleaved with other codes).
+- Capabilities (stock, unchanged by the patch): `60( 12 0F 10)` and `D6(01 04 05)`, although the firmware's real
+  0x60 values are the Samsung `0x09`/`0x06`/`0x03`. **Confirmed.**
 - Stock factory opcodes exist in the parser (`0xC2` factory blocks, `0xC4` EDID/serial write, `0xCB/0xCC`): never used.
 
 See `settings-map.md` for the settings block.

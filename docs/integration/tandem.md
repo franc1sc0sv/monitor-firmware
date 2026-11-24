@@ -1,6 +1,6 @@
 # Integration with Tandem (two monitors, two computers)
 
-State on 2026-11-16. This is the contract between `monitor-firmware` (firmware + `monitor-events` client/API) and
+State on 2026-11-16, table in §1 updated 2026-11-23 (see `tandem-firmware.md` §0.1). This is the contract between `monitor-firmware` (firmware + `monitor-events` client/API) and
 **Tandem** (`~/projects/personal-projects/apps/tandem`, Rust, Mac + Windows PC as one workstation). Goal set by the
 user: plan the tandem setup now so that, once the 32" G5 is repaired, plugging it back in makes it appear in Tandem
 and in the app **with no code change** — only data (profiles) and runtime detection.
@@ -24,12 +24,12 @@ Confidence per ADR-0001: **confirmed** = bytes or hardware observation, **inferr
 | | 34" LC34G55T | 32" Odyssey G5 FALCON |
 |---|---|---|
 | Platform | MStar MST9U, AEON R2 | Novatek NT68500 (8051 + SPARC V8) |
-| Firmware | v3.1 patched, protocol 2 (confirmed) | **bricked 2026-11-16**; after SPI recovery: whatever we write (see §4) |
+| Firmware | v3.1 patched, protocol 2 (confirmed) | recovered 2026-11-22; stock behaviour, controlled through the `g5-falcon` profile (ADR-0020) |
 | EDID product | see `docs/targets/lc34g55t/overview.md` (to record in the profile from hardware) | `0x7489` on DP, `0x748A` on HDMI (confirmed) |
 | Inputs | DP = port 0, HDMI = port 1 | DP, HDMI (single HDMI) |
 | Set 0x60 → HDMI | `0x06` (also `0x03`) (confirmed) | `0x06` (confirmed) |
-| Set 0x60 → DP | `0x09` (confirmed; `0x0F` also seen to work) | **unknown** — try `0x0F`, `0x09`, `0x10`; earlier HDMI-side test ignored `0x09/0x0F/0x11/0x12` but that was asked over HDMI while on HDMI, retest from DP |
-| Get 0x60 truthful? | **yes** (v1 patch, ADR-0009) | stock: inferred **no** (Novatek likely reports the queried port, same as stock MStar) |
+| Set 0x60 → DP | `0x09` (confirmed; `0x0F` also seen to work) | `0x0F` (confirmed 2026-11-23 from DP); back to HDMI with `0x11` |
+| Get 0x60 truthful? | **yes** (v1 patch, ADR-0009) | **yes** on stock (confirmed 2026-11-23: `0x11` over DP while HDMI was shown) |
 | Events / switch verdict | yes (ring 0xEA..0xEF, switch-done/failed) | no (until a G5 patch adds them) |
 | DDC from the Mac (HDMI) | only while HDMI is the active input; inactive HDMI returns RC=01 (confirmed) | untested |
 
