@@ -36,6 +36,19 @@ get_vcp_table = 0x377410
 get_reply_tail = 0x26fcd3
 cfg_ptr = 0x3c41b0
 settings_base = 0x204000
+# stock routines and variables used by v3.2 (protocol 3); see docs/targets/lc34g55t/tandem-re.md
+panel_off = 0x289488
+panel_on = 0x289228
+audio_mute = 0x28cc75
+led_standby = 0x253607
+led_on = 0x2535b9
+cable_mask = 0x27cede
+key_read = 0x28abdc
+pm_request = 0x4ca730
+pm_countdown = 0x4ca7aa
+panel_flag = 0x4ca78a
+wake_status = 0x4f82d4
+source_detect = 0x20414f
 
 [[guards]]
 name = "get60_case"
@@ -92,3 +105,73 @@ at = 0x399820
 len = 0x7e0
 expect_zero = true
 note = "end-of-.text padding used for new code"
+
+[[guards]]
+name = "key_read_call"
+at = 0x28aca8
+len = 4
+expect_sha256 = "0b1f7ce1eb2686d7a0588e27fb61b148e7a6dfaec9b87fc7088186ccf5103c89"
+note = "jal 0x28abdc (raw key read) inside the debounced key reader 0x28ac95"
+
+[[guards]]
+name = "get_table_d6"
+at = 0x377768
+len = 4
+expect_sha256 = "aa896a6ad1ebdd6112c589345962a3347984451eb5c70ea0001ea5797444633c"
+note = "Get VCP jump-table entry 0xD6 (stock: the reply tail 0x26fcd3 itself, hence stale replies)"
+
+[[guards]]
+name = "get_table_e8"
+at = 0x3777b0
+len = 4
+expect_sha256 = "d7445d9a443946ca97c69be424e10b73960614d4b99815299e1c53d38b10aae3"
+note = "Get VCP jump-table entry 0xE8 (stock: unsupported)"
+
+[[guards]]
+name = "callee_panel_off"
+at = 0x289488
+len = 16
+expect_sha256 = "7983b91de4639c50ffe650d589bf7d6d302b8be94fa63370f2255303a7cb76c6"
+note = "not overwritten: first 16 bytes of the stock routine v3.2 calls (panel-off sequence)"
+
+[[guards]]
+name = "callee_panel_on"
+at = 0x289228
+len = 16
+expect_sha256 = "7983b91de4639c50ffe650d589bf7d6d302b8be94fa63370f2255303a7cb76c6"
+note = "not overwritten: first 16 bytes of the stock routine v3.2 calls (panel-on sequence)"
+
+[[guards]]
+name = "callee_audio_mute"
+at = 0x28cc75
+len = 16
+expect_sha256 = "dbae1ceefc401cbbd892bafde0b66b1b2220a99325733a609aec26e55a993f85"
+note = "not overwritten: first 16 bytes of the stock routine v3.2 calls (audio mute(0) / restore(1))"
+
+[[guards]]
+name = "callee_led_standby"
+at = 0x253607
+len = 16
+expect_sha256 = "22fdf159c657a4472f7dc68f9f4db4e49abf17251240c1f5da2510debb424375"
+note = "not overwritten: first 16 bytes of the stock routine v3.2 calls (power LED, standby look)"
+
+[[guards]]
+name = "callee_led_on"
+at = 0x2535b9
+len = 16
+expect_sha256 = "22fdf159c657a4472f7dc68f9f4db4e49abf17251240c1f5da2510debb424375"
+note = "not overwritten: first 16 bytes of the stock routine v3.2 calls (power LED, on look)"
+
+[[guards]]
+name = "callee_cable_mask"
+at = 0x27cede
+len = 16
+expect_sha256 = "aa43120db8451aecba292941c0c95e303a72f88505f77e5ec92fb41fdb16d97a"
+note = "not overwritten: first 16 bytes of the stock routine v3.2 calls (cable mask of ports 0..2)"
+
+[[guards]]
+name = "callee_key_read"
+at = 0x28abdc
+len = 16
+expect_sha256 = "72f492ad371903a043a6ac318e22a3899d0ec71d303472749b7cd23ab9e3c27f"
+note = "not overwritten: first 16 bytes of the stock routine v3.2 calls (raw key read)"

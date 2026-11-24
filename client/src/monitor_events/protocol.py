@@ -7,6 +7,9 @@ VCP codes (manufacturer range):
   0xED get: event time: MH=low byte of sequence number, ML:CH:CL=time in 10 ms units since boot
   0xEE get: live state: MH=input port, ML=source select, CH=power flags, CL=signal present
   0xEF get: monitor clock, 32-bit, 10 ms units since boot
+Protocol 3 (0xEA ML = 3) adds:
+  0xE8 get: capability word: MH=cable mask, ML=flags (bit0 soft standby, bit1 source detection manual), CH:CL=bits
+  0xD6 get: real power mode (1 on, 4 soft standby); set: 4 soft standby, 1 wake, 5 real power off
 """
 
 from __future__ import annotations
@@ -28,6 +31,8 @@ EVENT_NAMES = {
     0x11: "switch-done",
     0x12: "switch-failed",
     0x13: "ddc-power-request",
+    0x14: "power-state",
+    0x15: "cable-mask",
     0x20: "setting-changed",
     0x21: "setting-changed",
 }
@@ -88,6 +93,7 @@ def mask_serial(addr: int, data: bytes, raw: bool = False) -> bytes:
 SETTING_NAMES = {
     0xD7: "power/ddc flags (bit0 power on, bit6 DDC/CI enabled)",
     0xDE: "source select",
+    0x14F: "source detection (0 auto, else manual; menu item 0x42) [inferred]",
     0xE4: "current window",
     0xE5: "window 0 input port",
     0x1D3: "brightness (menu item 0x0d)",
@@ -102,6 +108,28 @@ SETTING_NAMES = {
 # menu item to apply after poking a setting (FullAccess.apply)
 SETTING_ITEMS = {0x1D3: 0x0D, 0x1D6: 0x31, 0x1D7: 0x11, 0x1D8: 0x12, 0x1D9: 0x13, 0x1DA: 0x0E, 0x1DF: 0x0F, 0x1E0: 0x04}
 PORT_NAMES = {0: "DisplayPort", 1: "HDMI", 2: "port2"}
+# Protocol 3
+CAPABILITY_BITS = {
+    0: "real-input",
+    1: "switch-verdict",
+    2: "event-ring",
+    3: "power-wake",
+    4: "inactive-cable-detect",
+    5: "source-detect",
+    6: "memory-access",
+    7: "get-d6-truthful",
+    8: "switch-guard",
+}
+POWER_CAUSES = {0: "cold boot", 1: "DDC", 2: "key", 3: "signal / link activity", 4: "no signal"}
+POWER_STATES = {1: "on", 2: "standby imminent", 4: "soft standby", 5: "power-off requested"}
+POWER_ON, POWER_SOFT_STANDBY, POWER_OFF = 1, 4, 5
+
+
+def cable_names(mask: int) -> str:
+    names = [PORT_NAMES[b] for b in range(3) if mask & (1 << b)]
+    return "+".join(names) if names else "none"
+
+
 VCP_TO_PORT = {0x09: 0, 0x06: 1}
 PORT_TO_VCP = {v: k for k, v in VCP_TO_PORT.items()}
 
@@ -139,6 +167,12 @@ class Event:
             return f"power flags 0x{self.old:02x} to 0x{self.new:02x} (power {'on' if self.new & 1 else 'off'})"
         if self.id == 0x00:
             return "monitor booted (event log started)"
+        if self.id == 0x14:
+            state = POWER_STATES.get(self.new, hex(self.new))
+            return f"power state: {state} (cause: {POWER_CAUSES.get(self.old, hex(self.old))})"
+        if self.id == 0x15:
+            was = "initial" if self.old == 0xEE else cable_names(self.old)
+            return f"cables detected: {cable_names(self.new)} (was {was})"
         if self.id in (0x20, 0x21):
             off = ((self.id & 1) << 8) | self.old
             return f"setting 0x{SETTINGS_BASE + off:06x} ({SETTING_NAMES.get(off, f'offset 0x{off:03x}')}) = {self.new} (0x{self.new:02x})"
@@ -156,6 +190,37 @@ class LiveState:
     @property
     def power_on(self) -> bool:
         return bool(self.power_flags & 1)
+
+
+@dataclass(frozen=True)
+class Capabilities:
+    """Decoded Get 0xE8 (protocol 3). `bits` never changes between boots; mask and flags are live."""
+
+    cable_mask: int
+    flags: int
+    bits: int
+
+    @classmethod
+    def from_reply(cls, mh: int, ml: int, ch: int, cl: int) -> Capabilities:
+        return cls(mh, ml, (ch << 8) | cl)
+
+    def has(self, name: str) -> bool:
+        return any(n == name and self.bits & (1 << b) for b, n in CAPABILITY_BITS.items())
+
+    @property
+    def names(self) -> list[str]:
+        return [n for b, n in CAPABILITY_BITS.items() if self.bits & (1 << b)]
+
+    @property
+    def soft_standby(self) -> bool:
+        return bool(self.flags & 1)
+
+    @property
+    def source_detect_manual(self) -> bool:
+        return bool(self.flags & 2)
+
+    def cable(self, port: int) -> bool:
+        return bool(self.cable_mask & (1 << port))
 
 
 class ProtocolError(Exception):
@@ -234,6 +299,39 @@ class EventLog:
         if rc != 0:
             raise ProtocolError("VCP 0xEA unsupported: stock firmware?")
         return {"ring": mh, "version": ml, "seq": (ch << 8) | cl}
+
+    def capabilities(self) -> Capabilities | None:
+        """Protocol 3 capability word, or None on protocol 2 firmware (0xE8 unsupported there)."""
+        if self.info()["version"] < 3:
+            return None
+        rc, mh, ml, ch, cl = self._get(0xE8)
+        return None if rc != 0 else Capabilities.from_reply(mh, ml, ch, cl)
+
+    def power_mode(self) -> int | None:
+        """Real power mode (1 on, 4 soft standby). None when Get 0xD6 is not truthful (protocol 2: stale replies)."""
+        caps = self.capabilities()
+        if caps is None or not caps.has("get-d6-truthful"):
+            return None
+        rc, _, _, ch, cl = self._get(0xD6)
+        return None if rc != 0 else (ch << 8) | cl
+
+    def set_power(self, mode: int) -> int:
+        """Set 0xD6 = 4 (soft standby), 1 (wake) or 5 (real power off). Soft standby and wake are confirmed by
+        reading 0xD6 back and need the power-wake capability; after a real power off the monitor leaves the bus."""
+        if mode not in (POWER_ON, POWER_SOFT_STANDBY, POWER_OFF):
+            raise ValueError("power mode must be 1 (on), 4 (soft standby) or 5 (off)")
+        if mode == POWER_OFF:
+            self._set(0xD6, mode)
+            return mode
+        caps = self.capabilities()
+        if caps is None or not caps.has("power-wake"):
+            raise ProtocolError("this firmware has no soft standby (a Set 0xD6 = 4 would be a real power off)")
+        for _ in range(5):
+            self._set(0xD6, mode)
+            time.sleep(0.12)
+            if self.power_mode() == mode:
+                return mode
+        raise ProtocolError(f"power mode {mode} not confirmed")
 
     def clock(self) -> int:
         rc, mh, ml, ch, cl = self._get(0xEF)

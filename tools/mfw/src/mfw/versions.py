@@ -77,7 +77,9 @@ def repo_root() -> Path:
 
 def all_versions(root: Path | None = None) -> list[Version]:
     root = root or repo_root()
-    return [Version.load(f) for f in sorted((root / "firmware" / "targets").glob("*/versions/*.toml"))]
+    files = sorted((root / "firmware" / "targets").glob("*/versions/*.toml"))
+    # Only MST9U version maps have [identity]; other platforms (Novatek, mfw.novatek) use their own schema.
+    return [Version.load(f) for f in files if "identity" in tomllib.loads(f.read_text())]
 
 
 def identify(ap_sha256: str, root: Path | None = None) -> Version | None:

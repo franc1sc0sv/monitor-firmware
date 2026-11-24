@@ -293,3 +293,116 @@ Decompile search in `data/ghidra2/inst.c`; disassembly with `Dis.java` against `
 `data/vendor/ram-installed.bin`, `data/dumps/LC34G55T-full-1.bin` and `out/mfw-v3.1.bin` with Python. The 8051 program
 was cut from the dump and analysed in a throw-away Ghidra project outside the repository (8051 language, functions
 seeded from LCALL targets); it is not kept in `data/`. To repeat: extract `flash:0x11080..0x1b930`, import at base 0.
+
+## 6. v3.2 as built (2026-11-23, not flashed)
+
+Source `firmware/targets/lc34g55t/patches/lc34-v3.2.s` (v3.1 source `lc34-full.s` untouched and still rebuilds
+byte-identically), golden listing `listings/1006.0/v3.2.lst`. One image carries everything; there is no separate
+stage A image (the code fits, with 11 bytes of the cave left, so a third feature needs a second cave).
+
+Static checks done before writing the calls (**confirmed** in disassembly unless marked):
+- `0x289488` panel-off: no arguments, returns at once when the panel flag `0x4ca78a` is 0, clears the flag, calls
+  the mute itself (`0x28cc75` with 0), walks the sequence table at `0x4320cc`, clears bit 3 of `0x4c1bfc`. It does
+  not touch `cfg[0xd7]`.
+- `0x289228` panel-on: no arguments; when the flag is 0 it sets it, waits for the u16 at `0x4ca796` to reach 0
+  (decremented in the 1 ms timer ISR, *inferred* from the decompile of `0x24d72d`), calls `0x274dda` and walks the
+  table at `0x4320b8` with stock delays (up to ~0.6 s). `0x274dda` increments a counter in settings `0x0c1..0x0c6`
+  and saves it: **every panel-on costs one EEPROM write** (stock behaviour; *inferred* from the decompile).
+- `0x28cc75(r3)`: 0 mutes, non-zero restores the volume from setting `0x10a`. `0x253607` / `0x2535b9`: two GPIO
+  writes each (`0x440/0x441` bit 4), polarity from setting `0x131`.
+- `0x27cede`: loops ports 0..2 over `0x24a72e`, saves and restores r10..r12, returns the mask in r3. Bit set means
+  the port's detect routine returned non-zero. That this means "cable present" (and not the inverse) is *inferred*
+  from the GPIO leaves and from the no-signal handler, which shows the cable message when the bit is clear.
+- `0x28abdc` raw key read: called from one place only, `0x28aca8` inside the debounced reader `0x28ac95`.
+- Second cave: not needed, not proven. `0x26e142` is not called (auto-revert was dropped for space).
+
+Differences from the plan in section 4 (the protocol document is unchanged by them):
+- **Key wake needs one more hook.** The call at `0x28aca8` now goes to `keyhook`, which calls the stock raw key
+  read and, only in soft standby, turns the first key press into a wake request and hides keys from the stock code
+  until release. Without it the power key would have performed a real power-off. Any key wakes, not only power.
+  The wake is logged as `0x14` old 2, new 1.
+- **Standby imminent** comes from the countdown flag `0x4ca7aa` or the request word `0x4ca730` becoming 1, not from
+  bit 1 of `0x4c1bfc` (that bit is set and consumed inside one main-loop pass, so the poll would never see it).
+  When the source is not attached there is no countdown and the event is logged one call before the hand-over, so
+  it is rarely readable. *Inferred* lead time; measure it.
+- `0x14` with new 5 and cause 2 is logged for every power-off request that did not come from Set D6 = 5 (key, off
+  timer, AC restored while off). It is also rarely readable.
+- The first `0x15` after boot has old = `0xEE`, like the other watches. Get `0xE8` MH is read fresh on each Get.
+- The switch guard logs `0x10` first and then `0x12` (old = target, new = current port) and never calls the stock
+  handler. The capability word is `0x01FF`.
+- Re-assert interval in soft standby: 2 s.
+
+Sites and guards added to `versions/1006.0.toml`: `key_read_call` (`0x28aca8`), `get_table_d6` (`0x377768`),
+`get_table_e8` (`0x3777b0`), and seven `callee_*` guards (first 16 bytes of each stock routine called). `mfw`'s
+version loader now skips version maps of other platforms (the Novatek G5 map made `mfw identify` and three tests
+fail).
+
+Space: cave `0x399820..0x399ff5` used, 2005 of 2016 bytes. RAM block: `+0x239..0x23f` newly used, no growth.
+
+Image (local, ignored): `out/lc34-v3.2.bin`, built from `data/dumps/LC34G55T-full-1.bin` with zopfli, `mfw verify`
+OK, 2127 bytes applied, sha256 `bb41db8a48a3a4c870797121b054e2ba6261770d959defb7bdbf522f07960701`, flash range
+`-Start 11000 -End 2c0000` (305 sectors differ from stock, 298 from the installed v3.1).
+
+## 7. HIL runbook for v3.2
+
+Needs the user at the monitor. Nothing here was run. Keep the power cable reachable. Recovery at any point:
+a hang (dark, no LED, keys dead) is cleared by unplugging power for 30 s; a bad flash or bad behaviour that
+survives a power cycle is fixed with the `restore-stock` skill (or by flashing `out/mfw-v3.1.bin` again). The boot
+stages and the standby program are not written, so the ISP route stays available.
+
+### Before flashing (current v3.1)
+
+1. Quit every DDC client (Tandem, `desk`, `monitor-events`). Turn the PC's displays off for 120 s, wake with the
+   mouse; five times (test A of section 2). Note the LED in standby. **If this hangs, stop:** the hang is not
+   caused by polling, and v3.2 must wait for the stock comparison (test E).
+2. Optional, same firmware: tests C and D of section 2, and steps 3-6 of section 5.
+
+### Flash
+
+3. `flash-monitor` skill with `out/lc34-v3.2.bin`, backup `data/dumps/LC34G55T-full-1.bin`,
+   `-Start 11000 -End 2c0000`. Compare the SHA-256 after copying to Windows.
+
+### Stage A: read-only behaviour (do all of it before any Set 0xD6)
+
+| # | Step | Expect |
+|---|---|---|
+| A1 | Picture comes up; press a menu key, open and close the OSD, change brightness with the keys | all normal. This is the first test of the key hook: **if keys are dead or erratic, go back to v3.1** |
+| A2 | `monitor-events status`, Get `0xEA` | ML = 3 |
+| A3 | `history` | `boot`, then `power-state` old 0 new 1 (cold start after flashing may show cause 0), then the initial watches, and within a second `cable-mask` old `0xEE` |
+| A4 | Get `0xE8` with both computers connected and awake | MH = 3, ML = 0 (or 2 if source detection is manual), CH:CL = `0x01FF` |
+| A5 | Unplug the HDMI cable at the monitor, wait 2 s, Get `0xE8`, read history; plug it back | MH = 1 and a `cable-mask` 3 -> 1 event; back to 3 after plugging. **If the bits are inverted (MH = 2 while only DP is connected), stop using the switch guard and report it: one instruction flips it** |
+| A6 | Same with the Mac asleep but connected | records whether a sleeping Mac still reads as present |
+| A7 | Get `0xD6` eight times, interleaved with Get `0x10` | always MH:ML = 5, CH:CL = 1 |
+| A8 | Switch DP -> HDMI -> DP with both sources awake | `switch-done` both ways, as on v3.1 |
+| A9 | HDMI cable unplugged, Set `0x60 = 6` | no switch, picture stays; history shows `ddc-switch-request` then `switch-failed` old 1 new 0 at once |
+| A10 | Power key off, power key on | normal; after boot `power-state` cause 2 (key) |
+| A11 | No DDC client running: displays off 120 s, wake by mouse; three times | normal standby and wake; after each wake `power-state` cause 3 |
+| A12 | One client polling at 1 Hz: let the PC's displays turn off | look for `power-state` new 2 before the monitor leaves; note how many seconds of warning there were |
+
+### Stage B: soft standby (only if stage A is clean)
+
+| # | Step | Expect |
+|---|---|---|
+| B1 | Set `0xD6 = 4` from the PC | panel dark within about a second, LED in its standby look, audio muted. Windows keeps listing the monitor; Get `0xD6` = 4; Get `0xE8` ML bit 0 set; events `0x13` (new 4) and `0x14` old 1 new 4 |
+| B2 | Wait 60 s, move windows, change nothing else | stays dark; no flashing of the backlight. **If the panel flickers on and off every 2 s, wake it (B3) and report: stock code is fighting the flag** |
+| B3 | Set `0xD6 = 1` | picture back in about a second, LED on, audio back; Get `0xD6` = 1; `0x14` old 1 new 1 |
+| B4 | Set `0xD6 = 4`, then press the power key once | picture back (not a power-off); `0x14` old 2 new 1; the key does nothing else. Press power again: normal power-off |
+| B5 | Set `0xD6 = 4`, then press a menu key | wakes; the OSD does not open from that press |
+| B6 | Set `0xD6 = 4` from the PC, Set `0xD6 = 1` from the Mac over HDMI (and the reverse) | either host can wake it |
+| B7 | Set `0xD6 = 4`, then let the PC turn its displays off (no DDC client polling) for 120 s, wake by mouse | real standby, then a normal wake with the picture on and Get `0xD6` = 1 |
+| B8 | Set `0xD6 = 4`, switch input with Set `0x60` | switch works while dark (verdict events), still dark; wake shows the new input |
+| B9 | Set `0xD6 = 5` | real power-off as with the key; the PC loses the monitor; power key brings it back, `0x14` cause 2 |
+| B10 | Soft standby for 30 minutes, then wake | wakes; `0xEF` clock kept running; no gaps in the event sequence |
+| B11 | `hil-check` skill, full checklist including the 30-minute standby/wake item | all pass |
+
+Measure with a watt meter if one is at hand: on, soft standby, real standby.
+
+### Still inferred after the build, settled by the steps above
+
+- Cable-mask polarity and what a sleeping Mac reads as (A5, A6).
+- That the key hook is transparent outside soft standby (A1, A10) and that one raw read is enough to detect a key
+  without false wakes (B2, B10).
+- That the stock panel sequences are safe to call from the Set handler and the poll, and that nothing in the stock
+  code keeps turning the panel back on (B1-B3, B10).
+- Lead time of "standby imminent" (A12) and the wake-cause values (A3, A10, A11).
+- That source detection is settings offset `0x14f` (A4 ML bit 1 against the OSD setting).

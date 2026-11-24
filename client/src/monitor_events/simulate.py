@@ -17,8 +17,20 @@ RING = 64
 
 
 class FakeMonitor:
-    def __init__(self, name: str = "fake LC34G55T", port: int = 1, switch_delay: float = 0.3, lock_ok: bool = True):
+    def __init__(
+        self,
+        name: str = "fake LC34G55T",
+        port: int = 1,
+        switch_delay: float = 0.3,
+        lock_ok: bool = True,
+        protocol: int = 3,
+        cables: int = 0b11,
+    ):
         self.name = name
+        self.protocol = protocol  # 2 = firmware v3.1, 3 = v3.2
+        self.cables = cables  # bit 0 DP, bit 1 HDMI
+        self.soft = 0  # 0 on, 1 soft standby (protocol 3)
+        self.off = False  # real power off: nothing answers
         self.port = port  # 0 DP, 1 HDMI
         self.switch_delay = switch_delay
         self.lock_ok = lock_ok  # False: switching never gets a locked picture -> switch-failed
@@ -45,6 +57,9 @@ class FakeMonitor:
         self._settings_set(0x1D3, 99)
         self._settings_set(0x0E5, port)
         self._log(0x00, 0, 0)
+        if protocol >= 3:
+            self._log(0x14, 0, 1)  # power-state on, cause cold boot
+            self._log(0x15, 0xEE, cables)
 
     # ---- model helpers
     def clock(self) -> int:
@@ -77,16 +92,54 @@ class FakeMonitor:
 
         threading.Thread(target=run, daemon=True).start()
 
+    # ---- things that happen at the monitor (protocol 3 model)
+    def set_cables(self, mask: int):
+        """A cable / source appears or goes away (bit 0 DP, bit 1 HDMI)."""
+        with self.lock:
+            if mask != self.cables:
+                old, self.cables = self.cables, mask & 3
+                if self.protocol >= 3:
+                    self._log(0x15, old, self.cables)
+
+    def press_key(self):
+        """Any key in soft standby wakes the monitor (cause 2) and is not passed on to the stock handlers."""
+        with self.lock:
+            if self.soft:
+                self.soft = 0
+                self._log(0x14, 2, 1)
+
+    def _set_power(self, value: int):
+        self._log(0x13, self.port, value)
+        if self.protocol < 3:
+            self.off = value == 4  # stock: only 4 acts, and it is a real power off
+            return
+        if value == 4 and not self.soft:
+            self.soft = 1
+            self._log(0x14, 1, 4)
+        elif value == 1 and self.soft:
+            self.soft = 0
+            self._log(0x14, 1, 1)
+        elif value == 5:
+            self._log(0x14, 1, 5)
+            self.off = True
+
     # ---- display interface (same as the real transports)
     def get_vcp_raw(self, code: int):
+        if self.off:
+            return None
         with self.lock:
+            if self.protocol >= 3 and code == 0xD6:
+                return (0, 0, 5, 0, 4 if self.soft else 1)
+            if self.protocol >= 3 and code == 0xE8:
+                manual = self.mem[SETTINGS_BASE - RAM_LO + 0x14F] != 0
+                return (0, self.cables, self.soft | (2 if manual else 0), 0x01, 0xFF)
             if code == 0x60:
                 return (0, 0, 0x0E, 0, {0: 0x09, 1: 0x06}[self.port])
             if code in self.vcp:
                 cur, mx = self.vcp[code]
                 return (0, mx >> 8, mx & 0xFF, cur >> 8, cur & 0xFF)
             if code == 0xEA:
-                return (0, RING, 2, self.seq >> 8, self.seq & 0xFF)
+                return (0, RING, self.protocol, self.seq >> 8, self.seq & 0xFF)
             if code == 0xEB:
                 return (0, 0, 0, self.cursor >> 8, self.cursor & 0xFF)
             if code in (0xEC, 0xED):
@@ -113,11 +166,19 @@ class FakeMonitor:
             return (1, 0xFF, 0xFF, 0, 0)  # unsupported, like the stock default case
 
     def set_vcp(self, code: int, value: int):
+        if self.off:
+            raise OSError("monitor is off")
         with self.lock:
             if code == 0x60:
                 target = {0x09: 0, 0x06: 1}.get(value)
-                if target is not None:
+                if target is not None and self.protocol >= 3 and not self.cables & (1 << target):
+                    # switch guard: request logged first, then switch-failed at once, and no switch
+                    self._log(0x10, self.port, value)
+                    self._log(0x12, target, self.port)
+                elif target is not None:
                     self._switch(target, value)
+            elif code == 0xD6:
+                self._set_power(value & 0xFF)
             elif code in self.vcp:
                 _, mx = self.vcp[code]
                 v = min(value, mx)

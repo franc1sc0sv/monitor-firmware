@@ -17,3 +17,165 @@ version_digits_offset = 0x273364       # start of "1008.3"
 # Known patch sites (file offsets). MGA byte corroborated locally: 0x00 here, "Picture" category string adjacent,
 # matching the sibling NT68552 RE (github:c8dhjp4tyv-bit/odyssey-g5-firmware-research, for 1010.0). Confidence: inferred.
 mga_supported = { at = 0x2D2776, stock = 0x00, note = "00->01 reveals the hidden MGA factory-calibration menu (data-only)" }
+
+# ---------------------------------------------------------------------------------------------------------------
+# Production patch, protocol 3 (patches/production_hook.py; evidence in docs/targets/g5-falcon/tandem-re.md).
+# Code addresses are nominal VAs (file = VA + 0x2E000; the code runs at VA + 0x320). RAM addresses are absolute.
+# "confirmed" = read in the disassembly of this image; hardware behaviour of the patch is still to be measured.
+# ---------------------------------------------------------------------------------------------------------------
+[production.symbols]
+get_call_site = 0x103EBC        # dispatcher 0x103DBC: call to get_vcp (confirmed; hook site proven by dev images)
+set_call_site = 0x104170        # dispatcher: call to set_vcp (confirmed; hook site proven by dev images)
+get_vcp = 0x1882AC              # SecLibCommon_DdcCmdGetVcp
+set_vcp = 0x1869BC              # SecLibCommon_DddCmdSetVcp
+get_current_source = 0x1B02C0   # SecLibSource_GetCurrentSecSourceName(window): 0x00 HDMI1, 0x10 DP1 (confirmed)
+set_power_state = 0x1ADACC      # SecLibPower_SetPowerState: 0 toggle, 1 off, 2 on, 3 power saving, 5 wake (confirmed)
+panel_on_off = 0x18BDE8         # SecLibCommon_PanelOnOffControl(onOff, force2Finish) (confirmed by its own strings)
+led_power_on = 0x18A710         # "Set LED for Power On" routine, no arguments (confirmed)
+led_power_off = 0x18A830        # "Set LED for Power Off" routine, no arguments (confirmed)
+tick_seconds = 0xA8037D2C       # +1 per pass of a main-loop gate, wraps at 86400: seconds (unit inferred)
+sync_state = 0xA803B12C         # main window sync state word (confirmed)
+sync_locked = 4                 # SEC_SYNC_SYNC_NORMAL (confirmed from the debug table)
+cable_state = 0xA803B13C        # u32[2] by source index: [0] HDMI1, [1] DP1; 2 = connected, 1 = not (confirmed)
+heap_break = 0xA803C0A0         # C library sbrk pointer; 0 until the first malloc; the heap starts at 0xA803C0A8
+
+[production.ram]
+# Inside the C heap's address range (it grows up from 0xA803C0A8 with no limit check). The hook refuses to use the
+# block when heap_break is above `ring`, and then answers like stock. 0xA803CFC0 was used by dev images 1020.1..1021.4.
+base = 0xA803CC00
+ring = 0xA803CDC0               # 64 records x 8 bytes, ends at state
+state = 0xA803CFC0              # 16 bytes used
+
+[production.regions]            # nominal VA and size of the code the hook replaces
+main = { start = 0x1E14EC, size = 0x280 }
+leaf = { start = 0x1E45D4, size = 0x90 }
+sample = { start = 0x1E176C, size = 0x114 }
+aux = { start = 0x1E1AE4, size = 0x114 }
+
+# funcs in 1e14ec..1e1890: ['0x1e14ec', '0x1e176c', '0x1e1880']
+[[guards]]
+name = "get_call_site"
+at = 0x131ebc
+len = 0x4
+expect_sha256 = "5f383389e8344bbc128b3ba71df5bd7b7e9e20cdf60de1530f3c768b02aa76ab"
+note = "VA 0x103ebc: dispatcher call to the Get VCP handler (redirected to the hook)"
+
+[[guards]]
+name = "set_call_site"
+at = 0x132170
+len = 0x4
+expect_sha256 = "4d75a422f9b6711eb6382c095d6fd4a5190271eb80c2478643b748dd04b296ce"
+note = "VA 0x104170: dispatcher call to the Set VCP handler (redirected to the hook)"
+
+[[guards]]
+name = "region_main"
+at = 0x20f4ec
+len = 0x280
+expect_sha256 = "1b9f410ad81a1c1b108de06ff61564b553d6f512a49d0a354fb983e6d8f336ce"
+note = "VA 0x1e14ec: dead function, hook body (hardware-proven as hook space by dev images 1017..1021)"
+
+[[guards]]
+name = "region_leaf"
+at = 0x2125d4
+len = 0x90
+expect_sha256 = "a93ac89bd68fb98ebf296e686b7d165c143155b90341abd98ecc8232e65121f9"
+note = "VA 0x1e45d4: dead stub, leaf routines (hardware-proven as hook space by dev images 1010, 1014)"
+
+[[guards]]
+name = "region_sample"
+at = 0x20f76c
+len = 0x114
+expect_sha256 = "c5f285a55eff7d694f7e4b9e14e0aad286b4fa4db717426caf1dff7a0524396c"
+note = "VA 0x1e176c: dead function next to region_main (static proof only), p3c watchers"
+
+[[guards]]
+name = "get_vcp"
+at = 0x1b62ac
+len = 0x58
+expect_sha256 = "520ed258eb12b36cb726ee99fbe2c81b28d50716b41e9bb9b96ba3958045bdbf"
+note = "VA 0x1882ac: SecLibCommon_DdcCmdGetVcp entry (pass-through target)"
+
+[[guards]]
+name = "set_vcp"
+at = 0x1b49bc
+len = 0x9c
+expect_sha256 = "1c337bfb33249f7431eb1e939cc19990e491a0b442685c4dedf694eab2cbf56e"
+note = "VA 0x1869bc: SecLibCommon_DddCmdSetVcp entry (pass-through target)"
+
+[[guards]]
+name = "get_current_source"
+at = 0x1de2c0
+len = 0x78
+expect_sha256 = "1465a7d1446958348fd549c7513be453fc6fa30e1b4a62379f376c7a777aaef4"
+note = "VA 0x1b02c0: SecLibSource_GetCurrentSecSourceName (called by the hook)"
+
+[[guards]]
+name = "set_power_state"
+at = 0x1dbacc
+len = 0x60
+expect_sha256 = "cdc334de9db3a9068396579be3c8c1cdcb3686959c2d5707767b8a6a36bfeb3a"
+note = "VA 0x1adacc: SecLibPower_SetPowerState entry (called with 1 = off)"
+
+[[guards]]
+name = "panel_on_off"
+at = 0x1b9de8
+len = 0x58
+expect_sha256 = "8c482d1b92b6ed7c89fb387acd5a82ec48049a4c7a060ae6fbe03110a234eac2"
+note = "VA 0x18bde8: SecLibCommon_PanelOnOffControl (called by the hook)"
+
+[[guards]]
+name = "led_power_on"
+at = 0x1b8710
+len = 0x28
+expect_sha256 = "9a3aad87da4c69faa0fc61bcd43ad79a010ffeba6560bc2c7febcf1459e9e92b"
+note = "VA 0x18a710: LED-for-power-on routine entry"
+
+[[guards]]
+name = "led_power_off"
+at = 0x1b8830
+len = 0x28
+expect_sha256 = "006847547f8b263293f689d8ef4fbde113df2e80daf07faebd6f93e4a91154df"
+note = "VA 0x18a830: LED-for-power-off routine entry"
+
+[[guards]]
+name = "cable_poller"
+at = 0x1baa84
+len = 0xf8
+expect_sha256 = "7f45789e06eb019808d128b8d9f3c1317f2376cb2150a7399f6b924a99172925"
+note = "VA 0x18ca84: main-loop cable poller: proves cable_state[] layout and the value 2 = connected"
+
+[[guards]]
+name = "sbrk"
+at = 0x21ce68
+len = 0x30
+expect_sha256 = "e63d7b2a97dda0634e09c2e32df72ce21c2a2f7b360cfa7ffe5f9b0b6951f613"
+note = "VA 0x1eee68: C library sbrk: proves heap_break and the heap start"
+
+[[guards]]
+name = "tick"
+at = 0x1bdd80
+len = 0x2c
+expect_sha256 = "7922870a207cf50925cdd5c10420a28d68febca162664229543eb2704f47a913"
+note = "VA 0x18fd80: seconds tick increment and its 86400 wrap"
+
+[[guards]]
+name = "sync_callback"
+at = 0x151620
+len = 0x40
+expect_sha256 = "dcab0dfc20f901c1d198c3851b67bc9648b365f6d84c4a45a3958b054aa40f47"
+note = "VA 0x123620: SecHalScaler_UpdateSyncState_CallBack entry: writer of sync_state[]"
+
+[[guards]]
+name = "source_table"
+at = 0x2375cc
+len = 0x18
+expect_sha256 = "5a037a878db8c46739526b12373c60fdf20c970f33806074ff3e895435417955"
+note = "VA 0x2098cc: source index table: index 0 = HDMI1 (0x00), index 1 = DP1 (0x10)"
+
+[[guards]]
+name = "region_aux"
+at = 0x20fae4
+len = 0x114
+expect_sha256 = "7fd2d6b9087cabb8c8f43f0e845efac4dc304896ca451702f912e70a14c813d4"
+note = "VA 0x1e1ae4: dead function (static proof only), p3c ring reads and the Set 0x60 guard"
+
