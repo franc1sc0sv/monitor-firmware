@@ -266,7 +266,13 @@ Only after Phase B works, so Tandem never waits on it.
 | R17 | dxva2 calls to the G5 block for tens of seconds while it boots, and `Desk::scan` is sequential | high / every monitor's events late during that time | Never re-read capabilities of a known unit (done); Tandem runs scans off the UI thread; later: per-monitor locking in the Windows backend |
 | R14 | Branch drift (`g5-falcon` vs `develop`) breaks the crate or the client | medium / merge pain | Merge `develop` into `g5-falcon` (or rebase) before Phase B |
 
-## 4. Decisions needed from the user
+## 4. Decisions
+
+- **2026-11-24 (user): the PC over DisplayPort is the only control path for both monitors.** The Mac never talks
+  DDC/CI; it asks the PC through Tandem's control plane. The G5's USB-C→HDMI adapter (no DDC bridge) is accepted as
+  is; no Mac fallback is pursued. When the PC is off or asleep, the monitors are not controllable by Tandem.
+
+## 4.1 Decisions still open
 
 1. Protocol 3 as one common layout for both monitors (recommended), or keep per-monitor drivers.
 2. G5: keep the current bank A image (it works with the profile) or return to stock 1008.3 before Phase D.
